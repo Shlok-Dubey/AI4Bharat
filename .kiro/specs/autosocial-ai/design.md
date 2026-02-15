@@ -1,8 +1,8 @@
-# Design Document: AutoSocial AI
+# Design Document: PostPilot AI
 
 ## Overview
 
-AutoSocial AI is a production-ready SaaS platform that automates social media content creation and publishing for businesses. The system uses AI to generate engaging campaigns from product images, schedules posts, and publishes them to Instagram automatically.
+PostPilot AI is a production-ready SaaS platform that automates social media content creation and publishing for businesses. The system uses AI to generate engaging campaigns from product images, schedules posts, and publishes them to Instagram automatically.
 
 ### System Purpose
 
@@ -474,7 +474,7 @@ class TokenService:
         """
         if self.encryption_key is None or self._key_expired():
             secret = await self.secrets_client.get_secret_value(
-                SecretId="autosocial-ai/encryption-key"
+                SecretId="PostPilot-ai/encryption-key"
             )
             self.encryption_key = base64.b64decode(secret["SecretString"])
             self._key_timestamp = datetime.utcnow()
@@ -1982,42 +1982,42 @@ All API errors follow a standardized format:
 ### Exception Hierarchy
 
 ```python
-class AutoSocialError(Exception):
+class PostPilotError(Exception):
     """Base exception for all application errors"""
     def __init__(self, message: str, error_code: str):
         self.message = message
         self.error_code = error_code
         super().__init__(message)
 
-class ValidationError(AutoSocialError):
+class ValidationError(PostPilotError):
     """Input validation errors (422)"""
     pass
 
-class AuthenticationError(AutoSocialError):
+class AuthenticationError(PostPilotError):
     """Authentication failures (401)"""
     pass
 
-class AuthorizationError(AutoSocialError):
+class AuthorizationError(PostPilotError):
     """Authorization failures (403)"""
     pass
 
-class ResourceNotFoundError(AutoSocialError):
+class ResourceNotFoundError(PostPilotError):
     """Resource not found (404)"""
     pass
 
-class RateLimitError(AutoSocialError):
+class RateLimitError(PostPilotError):
     """Rate limit exceeded (429)"""
     def __init__(self, message: str, retry_after: int):
         super().__init__(message, "RATE_LIMIT_EXCEEDED")
         self.retry_after = retry_after
 
-class QuotaExceededError(AutoSocialError):
+class QuotaExceededError(PostPilotError):
     """Daily quota exceeded (429)"""
     def __init__(self, message: str, reset_time: datetime):
         super().__init__(message, "QUOTA_EXCEEDED")
         self.reset_time = reset_time
 
-class ExternalServiceError(AutoSocialError):
+class ExternalServiceError(PostPilotError):
     """External service failures (503)"""
     def __init__(self, service: str, message: str):
         super().__init__(f"{service}: {message}", "EXTERNAL_SERVICE_ERROR")
@@ -2042,8 +2042,8 @@ class RekognitionError(ExternalServiceError):
 ### Error Handling Middleware
 
 ```python
-@app.exception_handler(AutoSocialError)
-async def autosocial_error_handler(request: Request, exc: AutoSocialError):
+@app.exception_handler(PostPilotError)
+async def PostPilot_error_handler(request: Request, exc: PostPilotError):
     status_code = {
         ValidationError: 422,
         AuthenticationError: 401,
@@ -2285,7 +2285,7 @@ from hypothesis import given, strategies as st
 @pytest.mark.asyncio
 async def test_property_password_hashing_integrity(password: str):
     """
-    Feature: autosocial-ai, Property 1: Password Hashing Integrity
+    Feature: PostPilot-ai, Property 1: Password Hashing Integrity
     
     For any user registration with a valid password, the stored password
     in the database should be hashed (not plaintext) and should verify
@@ -2319,7 +2319,7 @@ async def test_property_password_hashing_integrity(password: str):
 @pytest.mark.asyncio
 async def test_property_tenant_isolation(user_id: UUID, campaign_count: int):
     """
-    Feature: autosocial-ai, Property 5: Tenant Isolation
+    Feature: PostPilot-ai, Property 5: Tenant Isolation
     
     For any user and any resource type, querying should only return
     items belonging to that user.
@@ -2357,7 +2357,7 @@ async def test_property_tenant_isolation(user_id: UUID, campaign_count: int):
 @pytest.mark.asyncio
 async def test_property_encryption_round_trip(plaintext: str):
     """
-    Feature: autosocial-ai, Property 25: Encryption Round-Trip
+    Feature: PostPilot-ai, Property 25: Encryption Round-Trip
     
     For any plaintext token, encrypting then decrypting should produce
     the original token value.

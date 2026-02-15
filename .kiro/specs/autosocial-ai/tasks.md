@@ -1,8 +1,8 @@
-# Implementation Plan: AutoSocial AI
+# Implementation Plan: PostPilot AI
 
 ## Overview
 
-This implementation plan breaks down the AutoSocial AI platform into discrete, incremental coding tasks. The platform is a production-ready SaaS application with Python FastAPI backend, React frontend, MongoDB database, and AWS cloud services integration. Each task builds on previous work, with property-based tests and unit tests integrated throughout to validate correctness early.
+This implementation plan breaks down the PostPilot AI platform into discrete, incremental coding tasks. The platform is a production-ready SaaS application with Python FastAPI backend, React frontend, MongoDB database, and AWS cloud services integration. Each task builds on previous work, with property-based tests and unit tests integrated throughout to validate correctness early.
 
 ## Tasks
 
@@ -586,7 +586,7 @@ This implementation plan breaks down the AutoSocial AI platform into discrete, i
 
 - [ ] 20. Error handling and logging
   - [ ] 20.1 Create exception hierarchy
-    - Define AutoSocialError base exception
+    - Define PostPilotError base exception
     - Define ValidationError, AuthenticationError, AuthorizationError
     - Define ResourceNotFoundError, RateLimitError, QuotaExceededError
     - Define ExternalServiceError, InstagramPublishError, BedrockError, RekognitionError

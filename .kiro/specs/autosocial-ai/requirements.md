@@ -1,12 +1,12 @@
-# Requirements Document: AutoSocial AI
+# Requirements Document: PostPilot AI
 
 ## Introduction
 
-AutoSocial AI is a production-ready SaaS platform that automates social media presence for businesses using AI-powered campaign generation, image analysis, and automated publishing to Instagram. The system leverages AWS cloud services, AI capabilities from Amazon Bedrock and Rekognition, and integrates with Instagram Graph API to provide end-to-end social media automation.
+PostPilot AI is a production-ready SaaS platform that automates social media presence for businesses using AI-powered campaign generation, image analysis, and automated publishing to Instagram. The system leverages AWS cloud services, AI capabilities from Amazon Bedrock and Rekognition, and integrates with Instagram Graph API to provide end-to-end social media automation.
 
 ## Glossary
 
-- **Platform**: The complete AutoSocial AI system including frontend, backend, workers, and cloud infrastructure
+- **Platform**: The complete PostPilot AI system including frontend, backend, workers, and cloud infrastructure
 - **User**: A business user or administrator who uses the platform to manage social media automation
 - **Campaign**: An AI-generated social media marketing campaign consisting of captions, hashtags, and scheduling information
 - **Product**: A business product or service that users upload for campaign generation
