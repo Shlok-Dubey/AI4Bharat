@@ -1,47 +1,59 @@
-# Design Document: PostPilot AI
+# Design Document: PostPilot AI (AI-First Multi-Agent Architecture)
 
 ## Overview
 
-PostPilot AI is a production-ready SaaS platform that automates social media content creation and publishing for businesses. The system uses AI to generate engaging campaigns from product images, schedules posts, and publishes them to Instagram automatically.
+PostPilot AI is an AI-driven autonomous content orchestration platform that uses multiple specialized AI agents to automate social media presence for businesses. Unlike traditional rule-based systems, this platform employs intelligent agents that learn from campaign performance, adapt strategies, and continuously improve content quality through a shared Campaign Intelligence Memory.
 
 ### System Purpose
 
-The platform solves the problem of time-consuming social media management by:
-- Analyzing product images using Amazon Rekognition
-- Generating contextually relevant captions and hashtags using Amazon Bedrock
-- Scheduling posts for optimal engagement times
-- Publishing content to Instagram automatically
-- Tracking performance analytics
+The platform transforms social media automation from static scheduling to intelligent orchestration by:
+- Using AI agents to reason about business context and campaign strategy
+- Learning from past campaign performance to improve future content
+- Adapting content tone, timing, and style based on analytics feedback
+- Autonomously generating, scheduling, and publishing Instagram content
+- Building business-specific intelligence that improves over time
+
+### Why AI is Essential
+
+Traditional rule-based social media tools fail because:
+- **Static Templates**: Cannot adapt to changing audience preferences
+- **No Learning**: Same mistakes repeated across campaigns
+- **Generic Content**: One-size-fits-all approach ignores business uniqueness
+- **Manual Optimization**: Requires constant human intervention to improve
+
+AI agents solve these problems by:
+- **Contextual Reasoning**: Understanding business goals and product context
+- **Continuous Learning**: Analyzing what works and adapting strategies
+- **Personalization**: Tailoring content to each business's unique voice
+- **Autonomous Improvement**: Self-optimizing without human intervention
 
 ### Technology Stack
 
 **Frontend:**
-- React 18 with Vite for fast development and optimized builds
-- Axios for HTTP client with interceptors for authentication
+- React 18 with Vite for fast development
+- Axios for HTTP client with authentication
 - React Router for navigation
 - JWT stored in localStorage for authentication
 
-**Backend:**
+**Backend (Agent Runtime):**
 - Python 3.11 with FastAPI for async API development
-- Pydantic v2 for data validation and serialization
+- Amazon Bedrock (Claude 3.5 Sonnet) for AI agent reasoning and generation
+- Pydantic v2 for data validation and agent message schemas
 - Motor (async MongoDB driver) for database operations
-- Boto3 for AWS service integration
-- PyJWT for token generation and validation
-- Bcrypt for password hashing (cost factor 12)
-- Cryptography library for AES-256 encryption
 
-**Database:**
-- MongoDB Atlas (M10 cluster minimum for production)
-- Compound indexes for query optimization
-- TTL indexes for automatic data expiration
-
-**Cloud Services:**
-- AWS ECS Fargate for containerized deployment
-- Amazon S3 for media storage with private bucket policy
-- Amazon SQS Standard Queue for job processing
-- Amazon Bedrock (Claude 3 Sonnet model) for campaign generation
+**AI & Intelligence:**
+- Amazon Bedrock (Claude 3.5 Sonnet) for all agent reasoning and content generation
 - Amazon Rekognition for image analysis
-- AWS Secrets Manager for encryption key storage
+- Campaign Intelligence Memory (DynamoDB) for learned patterns per business
+
+**Cloud Services (AWS-Native):**
+- AWS Lambda for serverless agent execution
+- Amazon API Gateway for HTTP endpoints
+- Amazon DynamoDB for agent memory and fast data access
+- Amazon S3 for media storage
+- Amazon SQS for asynchronous job scheduling
+- Amazon Bedrock for LLM reasoning and generation
+- Amazon Rekognition for image analysis
 - CloudWatch for logging and monitoring
 
 **External APIs:**
@@ -51,180 +63,515 @@ The platform solves the problem of time-consuming social media management by:
 
 ## Architecture
 
-### System Architecture Diagram
+### Multi-Agent System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         USER INPUT                               │
+│              (Product, Business Context, Goals)                  │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    AGENT ORCHESTRATOR                            │
+│  (Coordinates agent workflow, manages state transitions)         │
+│  - Receives user requests                                        │
+│  - Routes to appropriate agents                                  │
+│  - Manages agent execution sequence                              │
+│  - Aggregates agent outputs                                      │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                ┌────────────┼────────────┐
+                │            │            │
+                ▼            ▼            ▼
+    ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+    │  BUSINESS    │  │  CAMPAIGN    │  │   CONTENT    │
+    │  PROFILING   │→ │  STRATEGY    │→ │  GENERATION  │
+    │    AGENT     │  │    AGENT     │  │    AGENT     │
+    └──────────────┘  └──────────────┘  └──────────────┘
+          │                  │                  │
+          └──────────────────┼──────────────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │   SCHEDULING         │
+                  │   INTELLIGENCE       │
+                  │      AGENT           │
+                  └──────────┬───────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │   INSTAGRAM          │
+                  │   PUBLISHING         │
+                  └──────────┬───────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │   ANALYTICS          │
+                  │   COLLECTION         │
+                  └──────────┬───────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │   PERFORMANCE        │
+                  │   LEARNING AGENT     │
+                  │  (Updates Memory)    │
+                  └──────────┬───────────┘
+                             │
+                             ▼
+              ┌──────────────────────────────┐
+              │  CAMPAIGN INTELLIGENCE       │
+              │         MEMORY               │
+              │  (Per-Business Learned       │
+              │   Patterns & Insights)       │
+              └──────────────────────────────┘
+```
+
+### AWS Infrastructure Diagram
 
 ```mermaid
 graph TB
     User[User Browser]
     React[React Frontend]
-    ALB[Application Load Balancer]
-    API[FastAPI Service<br/>ECS Tasks]
-    Worker[Worker Service<br/>ECS Tasks]
+    APIGateway[Amazon API Gateway]
     
-    Mongo[(MongoDB Atlas)]
-    S3[(Amazon S3)]
-    SQS[Amazon SQS]
-    Bedrock[Amazon Bedrock]
+    Orchestrator[Agent Orchestrator<br/>Lambda Function]
+    ProfileAgent[Business Profiling Agent<br/>Lambda]
+    StrategyAgent[Campaign Strategy Agent<br/>Lambda]
+    ContentAgent[Content Generation Agent<br/>Lambda]
+    ScheduleAgent[Scheduling Intelligence Agent<br/>Lambda]
+    LearnAgent[Performance Learning Agent<br/>Lambda]
+    
+    Memory[(Campaign Intelligence<br/>Memory - DynamoDB)]
+    UserDB[(User Data<br/>DynamoDB)]
+    S3[(Media Storage<br/>Amazon S3)]
+    SQS[Job Queue<br/>Amazon SQS]
+    Bedrock[Amazon Bedrock<br/>Claude 3.5 Sonnet]
     Rekognition[Amazon Rekognition]
     Instagram[Instagram Graph API]
-    Secrets[AWS Secrets Manager]
     CloudWatch[CloudWatch Logs]
     
     User --> React
-    React --> ALB
-    ALB --> API
-    API --> Mongo
-    API --> S3
-    API --> SQS
-    API --> Bedrock
-    API --> Rekognition
-    API --> Secrets
-    API --> CloudWatch
+    React --> APIGateway
+    APIGateway --> Orchestrator
     
-    Worker --> SQS
-    Worker --> Mongo
-    Worker --> S3
-    Worker --> Instagram
-    Worker --> Secrets
-    Worker --> CloudWatch
+    Orchestrator --> ProfileAgent
+    Orchestrator --> StrategyAgent
+    Orchestrator --> ContentAgent
+    Orchestrator --> ScheduleAgent
     
-    style API fill:#4A90E2
-    style Worker fill:#E24A4A
-    style Mongo fill:#47A248
-    style SQS fill:#FF9900
+    ProfileAgent --> Bedrock
+    ProfileAgent --> Memory
+    
+    StrategyAgent --> Bedrock
+    StrategyAgent --> Memory
+    
+    ContentAgent --> Bedrock
+    ContentAgent --> Rekognition
+    ContentAgent --> Memory
+    
+    ScheduleAgent --> Bedrock
+    ScheduleAgent --> Memory
+    ScheduleAgent --> SQS
+    
+    SQS --> Instagram
+    Instagram --> LearnAgent
+    LearnAgent --> Bedrock
+    LearnAgent --> Memory
+    
+    Orchestrator --> UserDB
+    Orchestrator --> S3
+    
+    ProfileAgent --> CloudWatch
+    StrategyAgent --> CloudWatch
+    ContentAgent --> CloudWatch
+    ScheduleAgent --> CloudWatch
+    LearnAgent --> CloudWatch
+    
+    style Orchestrator fill:#FF6B6B
+    style ProfileAgent fill:#4ECDC4
+    style StrategyAgent fill:#45B7D1
+    style ContentAgent fill:#96CEB4
+    style ScheduleAgent fill:#FFEAA7
+    style LearnAgent fill:#DFE6E9
+    style Memory fill:#FD79A8
+    style Bedrock fill:#A29BFE
 ```
+
+### AI-Driven Workflow Loop
+
+The system follows an intelligent, self-improving loop:
+
+```
+User Input (Product + Context)
+    ↓
+Agent Reasoning (Business Profiling)
+    ↓
+Strategy Decision (Campaign Strategy Agent)
+    ↓
+Content Generation (Content Generation Agent)
+    ↓
+Scheduling Decision (Scheduling Intelligence Agent)
+    ↓
+Publishing (Instagram API)
+    ↓
+Analytics Collection (Instagram Insights)
+    ↓
+Learning (Performance Learning Agent)
+    ↓
+Memory Update (Campaign Intelligence Memory)
+    ↓
+Next Campaign Improvement (Loop back with learned insights)
+```
+
+### Why This is AI-First, Not Rule-Based
+
+**Traditional Approach (What We're NOT Doing):**
+- Fixed templates with variable substitution
+- Static scheduling rules (e.g., "always post at 6 PM")
+- Generic hashtag lists
+- No learning from performance
+
+**AI-First Approach (What We ARE Doing):**
+- **Business Profiling Agent** reasons about business identity, target audience, and brand voice
+- **Campaign Strategy Agent** decides optimal campaign approach based on product context and past performance
+- **Content Generation Agent** creates contextually relevant content that matches learned patterns
+- **Scheduling Intelligence Agent** determines best posting time using historical engagement data
+- **Performance Learning Agent** analyzes what worked and updates memory for future campaigns
+
+Each agent uses Amazon Bedrock (Claude 3.5 Sonnet) for reasoning, not simple if-then rules.
 
 ### Request Flow Patterns
 
 #### Pattern 1: User Registration and Authentication
 1. User submits email and password to React frontend
-2. React sends POST /api/v1/auth/register to API service
-3. API service validates input using Pydantic schema
-4. API service hashes password with bcrypt (cost 12)
-5. API service stores user document in MongoDB users collection
-6. API service generates JWT access token (60 min expiry) and refresh token (7 days expiry)
-7. API service returns tokens to React
+2. React sends POST /api/v1/auth/register to API Gateway
+3. API Gateway triggers Orchestrator Lambda
+4. Orchestrator validates input, hashes password with bcrypt
+5. Orchestrator stores user in DynamoDB users table
+6. Orchestrator generates JWT tokens (60 min access, 7 days refresh)
+7. Orchestrator returns tokens to React
 8. React stores tokens in localStorage
 
 #### Pattern 2: Instagram OAuth Connection
 1. User clicks "Connect Instagram" in React
-2. React redirects to Instagram OAuth URL with client_id and redirect_uri
+2. React redirects to Instagram OAuth URL
 3. User authorizes on Instagram
 4. Instagram redirects back with authorization code
 5. React sends code to POST /api/v1/instagram/callback
-6. API service exchanges code for access_token and refresh_token via Instagram API
-7. API service encrypts tokens using AES-256 with key from Secrets Manager
-8. API service stores encrypted tokens in users collection
-9. API service fetches Instagram user profile (username, user_id)
-10. API service returns success to React
-
+6. Orchestrator Lambda exchanges code for Instagram tokens
+7. Orchestrator encrypts tokens using AWS KMS
+8. Orchestrator stores encrypted tokens in DynamoDB
+9. Orchestrator fetches Instagram profile (username, user_id)
+10. Orchestrator returns success to React
 
 #### Pattern 3: Product Upload and Image Analysis
-1. User uploads product (name, description, image file) via React form
-2. React sends multipart/form-data POST to /api/v1/products
-3. API service validates file type (JPEG, PNG only, max 10MB)
-4. API service generates unique filename: `{user_id}/products/{uuid}.{ext}`
-5. API service uploads image to S3 bucket asynchronously
-6. API service sends image to Rekognition DetectLabels API
-7. Rekognition returns labels with confidence scores
-8. API service filters labels with confidence >= 75%
-9. API service sorts labels by confidence descending and takes top 5
-10. API service calls Rekognition DetectFaces to check for human presence
-11. API service calls Rekognition DetectModerationLabels for content safety
-12. API service creates product document in MongoDB with S3 URL and analysis results
-13. API service returns product object to React
+1. User uploads product (name, description, image) via React form
+2. React sends multipart/form-data POST to API Gateway
+3. Orchestrator Lambda validates file (JPEG/PNG, max 10MB)
+4. Orchestrator uploads image to S3 bucket
+5. Orchestrator invokes Rekognition DetectLabels API
+6. Rekognition returns labels with confidence scores
+7. Orchestrator filters labels (confidence >= 75%), takes top 5
+8. Orchestrator stores product in DynamoDB with S3 URL and analysis
+9. Orchestrator returns product object to React
 
-#### Pattern 4: AI Campaign Generation
-1. User selects product and clicks "Generate Campaign" in React
-2. React sends POST /api/v1/campaigns/generate with product_id and tone preference
-3. API service retrieves product from MongoDB including image analysis
-4. API service constructs Bedrock prompt with structured template
-5. API service calls Bedrock InvokeModel API with Claude 3 Sonnet
-6. Bedrock returns generated caption and hashtags
-7. API service parses response and validates output format
-8. API service applies hashtag generation algorithm (see Components section)
-9. API service calculates optimal posting time based on user timezone
-10. API service creates campaign document in MongoDB with status "draft"
-11. API service returns campaign object to React
+#### Pattern 4: AI Campaign Generation (Multi-Agent Workflow)
+
+This is where the AI magic happens. Multiple agents collaborate:
+
+1. **User Request**: User selects product and clicks "Generate Campaign"
+2. **Orchestrator Activation**: API Gateway triggers Orchestrator Lambda
+3. **Business Profiling Agent Invocation**:
+   - Orchestrator invokes Business Profiling Agent Lambda
+   - Agent retrieves business context from Campaign Intelligence Memory
+   - Agent calls Bedrock to reason about business identity and target audience
+   - Agent returns business profile to Orchestrator
+4. **Campaign Strategy Agent Invocation**:
+   - Orchestrator invokes Campaign Strategy Agent Lambda
+   - Agent receives business profile and product details
+   - Agent retrieves past campaign performance from Memory
+   - Agent calls Bedrock to decide campaign strategy (tone, CTA style, hook pattern)
+   - Agent returns strategy to Orchestrator
+5. **Content Generation Agent Invocation**:
+   - Orchestrator invokes Content Generation Agent Lambda
+   - Agent receives strategy, product details, and image analysis
+   - Agent retrieves best-performing content patterns from Memory
+   - Agent calls Bedrock to generate caption and hashtags
+   - Agent validates output format and quality
+   - Agent returns generated content to Orchestrator
+6. **Scheduling Intelligence Agent Invocation**:
+   - Orchestrator invokes Scheduling Intelligence Agent Lambda
+   - Agent retrieves historical engagement data from Memory
+   - Agent calls Bedrock to determine optimal posting time
+   - Agent returns scheduling recommendation to Orchestrator
+7. **Campaign Storage**: Orchestrator stores campaign in DynamoDB with status "draft"
+8. **Response**: Orchestrator returns complete campaign to React
 
 #### Pattern 5: Campaign Scheduling and Publishing
 1. User selects campaign and scheduled time in React
-2. React sends POST /api/v1/campaigns/{id}/schedule with scheduled_time
-3. API service validates scheduled_time is in future
-4. API service generates idempotency_key (UUIDv4)
-5. API service updates campaign status to "scheduled" in MongoDB
-6. API service creates SQS message with campaign_id and scheduled_time
-7. API service returns success to React
-8. Worker service polls SQS queue every 30 seconds
-9. Worker receives message and queries MongoDB for campaign
-10. Worker checks if scheduled_time <= current_time
-11. Worker atomically updates campaign status: scheduled → publishing
-12. Worker retrieves encrypted Instagram token from MongoDB
-13. Worker decrypts token using key from Secrets Manager
-14. Worker downloads image from S3 using pre-signed URL
-15. Worker creates Instagram media container via Graph API
-16. Worker publishes container to Instagram feed
-17. Worker stores Instagram post_id in campaign document
-18. Worker updates campaign status to "published"
-19. Worker deletes SQS message
-20. Worker logs success to CloudWatch
+2. React sends POST /api/v1/campaigns/{id}/schedule
+3. Orchestrator validates scheduled_time is in future
+4. Orchestrator updates campaign status to "scheduled" in DynamoDB
+5. Orchestrator sends message to SQS queue with campaign_id and scheduled_time
+6. Orchestrator returns success to React
+7. SQS triggers publishing Lambda at scheduled time
+8. Publishing Lambda retrieves campaign from DynamoDB
+9. Publishing Lambda decrypts Instagram token using KMS
+10. Publishing Lambda downloads image from S3
+11. Publishing Lambda creates Instagram media container
+12. Publishing Lambda publishes to Instagram feed
+13. Publishing Lambda stores Instagram post_id in DynamoDB
+14. Publishing Lambda updates campaign status to "published"
 
-
-#### Pattern 6: Analytics Fetching
-1. Scheduled CloudWatch Event triggers every 6 hours
-2. Event invokes Worker service analytics task
-3. Worker queries MongoDB for campaigns with status "published" and last_analytics_fetch > 24 hours ago
-4. For each campaign, Worker calls Instagram Graph API Insights endpoint
-5. Worker retrieves metrics: likes, comments, reach, impressions, engagement_rate
-6. Worker stores metrics in analytics collection with timestamp
-7. Worker updates campaign.last_analytics_fetch timestamp
-8. When user views analytics dashboard, React calls GET /api/v1/analytics
-9. API service aggregates metrics from analytics collection
-10. API service calculates trends and summary statistics
-11. API service returns analytics data to React
-
-### Layered Architecture
-
-The system follows clean architecture principles with clear separation of concerns:
-
-**Layer 1: Presentation (React Frontend)**
-- Components: Reusable UI components
-- Pages: Route-level page components
-- Services: API client functions using Axios
-- Hooks: Custom React hooks for state management
-- Auth: Authentication context and protected routes
-
-**Layer 2: API Layer (FastAPI Routes)**
-- Route handlers in `/routes` directory
-- Input validation using Pydantic schemas
-- JWT authentication middleware
-- Rate limiting middleware
-- Error handling middleware
-- No business logic in routes (delegate to service layer)
-
-**Layer 3: Service Layer (Business Logic)**
-- CampaignService: Campaign generation and management
-- InstagramService: Instagram API integration
-- ImageAnalysisService: Rekognition integration
-- TokenService: Token encryption, decryption, refresh
-- SchedulerService: SQS message management
-- AnalyticsService: Metrics aggregation and calculation
-- All services are async and testable with mocked dependencies
-
-**Layer 4: Data Access Layer**
-- Repository pattern for MongoDB operations
-- UserRepository, ProductRepository, CampaignRepository, AnalyticsRepository
-- Encapsulates query logic and index usage
-- Returns domain models, not raw MongoDB documents
-
-**Layer 5: Infrastructure Layer**
-- AWS clients (S3, SQS, Bedrock, Rekognition, Secrets Manager)
-- MongoDB connection management
-- Configuration management
-- Logging setup
+#### Pattern 6: Analytics and Learning Loop
+1. CloudWatch Event triggers every 6 hours
+2. Event invokes Analytics Collection Lambda
+3. Lambda queries DynamoDB for published campaigns
+4. For each campaign, Lambda calls Instagram Insights API
+5. Lambda retrieves metrics (likes, comments, reach, impressions)
+6. Lambda stores metrics in DynamoDB analytics table
+7. Lambda invokes Performance Learning Agent
+8. **Performance Learning Agent**:
+   - Analyzes campaign performance vs. historical data
+   - Calls Bedrock to identify patterns (what worked, what didn't)
+   - Updates Campaign Intelligence Memory with learned insights
+   - Stores insights: best tone, CTA style, hook patterns, posting times
+9. Next campaign generation uses these learned insights automatically
 
 
 ## Components and Interfaces
+
+### AI Agent Specifications
+
+Each agent is a specialized Lambda function that uses Amazon Bedrock for reasoning. Agents are stateless and communicate through the Orchestrator.
+
+#### Agent Orchestrator
+
+**Purpose**: Central controller that coordinates agent workflow and manages state transitions
+
+**Inputs**:
+- User requests (HTTP via API Gateway)
+- Campaign generation requests
+- Scheduling requests
+
+**Outputs**:
+- Coordinated agent responses
+- Campaign objects
+- Status updates
+
+**Responsibilities**:
+- Route requests to appropriate agents
+- Manage agent execution sequence
+- Aggregate agent outputs
+- Handle errors and retries
+- Maintain request context
+
+**Implementation**:
+```python
+class AgentOrchestrator:
+    def __init__(
+        self,
+        business_profiling_agent: BusinessProfilingAgent,
+        campaign_strategy_agent: CampaignStrategyAgent,
+        content_generation_agent: ContentGenerationAgent,
+        scheduling_intelligence_agent: SchedulingIntelligenceAgent
+    ):
+        self.agents = {
+            "profiling": business_profiling_agent,
+            "strategy": campaign_strategy_agent,
+            "content": content_generation_agent,
+            "scheduling": scheduling_intelligence_agent
+        }
+    
+    async def generate_campaign(
+        self,
+        user_id: str,
+        product_id: str,
+        tone_preference: str
+    ) -> Campaign:
+        """
+        Orchestrate multi-agent campaign generation workflow.
+        
+        Workflow:
+        1. Invoke Business Profiling Agent
+        2. Invoke Campaign Strategy Agent with profile
+        3. Invoke Content Generation Agent with strategy
+        4. Invoke Scheduling Intelligence Agent
+        5. Aggregate results into Campaign object
+        6. Store in DynamoDB
+        7. Return campaign
+        """
+        # Step 1: Business Profiling
+        business_profile = await self.agents["profiling"].analyze_business(
+            user_id=user_id
+        )
+        
+        # Step 2: Campaign Strategy
+        strategy = await self.agents["strategy"].decide_strategy(
+            user_id=user_id,
+            product_id=product_id,
+            business_profile=business_profile,
+            tone_preference=tone_preference
+        )
+        
+        # Step 3: Content Generation
+        content = await self.agents["content"].generate_content(
+            user_id=user_id,
+            product_id=product_id,
+            strategy=strategy
+        )
+        
+        # Step 4: Scheduling Intelligence
+        optimal_time = await self.agents["scheduling"].determine_optimal_time(
+            user_id=user_id,
+            campaign_context=strategy
+        )
+        
+        # Step 5: Aggregate and store
+        campaign = Campaign(
+            user_id=user_id,
+            product_id=product_id,
+            caption=content.caption,
+            hashtags=content.hashtags,
+            tone=strategy.tone,
+            recommended_time=optimal_time,
+            status="draft"
+        )
+        
+        await self.store_campaign(campaign)
+        return campaign
+```
+
+#### Business Profiling Agent
+
+**Purpose**: Understand the business identity, target audience, and brand voice
+
+**Inputs**:
+- User ID
+- Historical campaigns (from Memory)
+- Product catalog
+- Instagram profile data
+
+**Outputs**:
+- Business profile object containing:
+  - Business type (e.g., "fashion boutique", "tech startup")
+  - Target audience demographics
+  - Brand voice characteristics
+  - Key value propositions
+
+**Memory Interaction**:
+- Reads: Past business profile (if exists)
+- Writes: Updated business profile
+
+**AI Responsibility**:
+- **Why AI**: Cannot use rules to understand nuanced business identity
+- **What AI Does**: Analyzes product descriptions, past content, and Instagram bio to infer business type, target audience, and brand personality
+- **Why Not Rules**: Business identity is contextual and multi-dimensional; requires reasoning about implicit patterns
+
+#### Campaign Strategy Agent
+
+**Purpose**: Decide optimal campaign approach based on product context and past performance
+
+**Inputs**:
+- Business profile (from Business Profiling Agent)
+- Product details and image analysis
+- Past campaign performance (from Memory)
+- User tone preference
+
+**Outputs**:
+- Campaign strategy object containing:
+  - Recommended tone
+  - CTA (Call-to-Action) style
+  - Hook pattern
+  - Content angle
+  - Hashtag strategy
+
+**Memory Interaction**:
+- Reads: Best-performing campaign strategies
+- Reads: Tone effectiveness scores
+- Reads: CTA performance data
+
+**AI Responsibility**:
+- **Why AI**: Strategy requires reasoning about multiple factors and trade-offs
+- **What AI Does**: Analyzes product context, business goals, and past performance to decide optimal campaign approach
+- **Why Not Rules**: Strategy is contextual; what works for one product/audience may not work for another
+
+#### Content Generation Agent
+
+**Purpose**: Generate engaging captions and hashtags that match learned patterns
+
+**Inputs**:
+- Campaign strategy (from Campaign Strategy Agent)
+- Product details and image analysis
+- Best-performing content patterns (from Memory)
+
+**Outputs**:
+- Generated content object containing:
+  - Caption (120-180 characters)
+  - Hashtags (max 10)
+  - Emojis (contextually appropriate)
+
+**Memory Interaction**:
+- Reads: Best-performing caption structures
+- Reads: Effective hashtag combinations
+- Reads: Emoji usage patterns
+
+**AI Responsibility**:
+- **Why AI**: Content must be creative, contextual, and match brand voice
+- **What AI Does**: Generates original captions that incorporate learned patterns while remaining authentic and engaging
+- **Why Not Rules**: Templates produce generic content; AI creates contextually relevant, natural-sounding captions
+
+#### Scheduling Intelligence Agent
+
+**Purpose**: Determine optimal posting time using historical engagement data
+
+**Inputs**:
+- User ID
+- Campaign context
+- Historical engagement data (from Memory)
+- User timezone
+
+**Outputs**:
+- Optimal posting time (datetime)
+- Confidence score
+- Reasoning
+
+**Memory Interaction**:
+- Reads: Engagement patterns by day of week
+- Reads: Engagement patterns by time of day
+- Reads: Best-performing posting times
+
+**AI Responsibility**:
+- **Why AI**: Optimal timing depends on complex patterns in engagement data
+- **What AI Does**: Analyzes historical engagement to identify best posting windows
+- **Why Not Rules**: Engagement patterns are non-linear and business-specific; simple rules (e.g., "always 6 PM") ignore data
+
+#### Performance Learning Agent
+
+**Purpose**: Analyze campaign performance and update Campaign Intelligence Memory
+
+**Inputs**:
+- Campaign ID
+- Instagram analytics (likes, comments, reach, impressions)
+- Campaign metadata (tone, CTA, hook, posting time)
+
+**Outputs**:
+- Performance insights
+- Memory updates
+- Learned patterns
+
+**Memory Interaction**:
+- Reads: Historical performance data
+- Writes: Updated performance insights
+- Writes: Best-performing patterns
+- Writes: Tone effectiveness scores
+- Writes: Optimal posting times
+
+**AI Responsibility**:
+- **Why AI**: Identifying what worked requires reasoning about complex patterns
+- **What AI Does**: Analyzes performance data to extract actionable insights and patterns
+- **Why Not Rules**: Performance factors interact in complex ways; requires reasoning to identify true causes
 
 ### Frontend Components
 
@@ -772,127 +1119,291 @@ class WorkerService:
 
 ## Data Models
 
-### MongoDB Collections and Schemas
+### DynamoDB Tables
 
-#### users Collection
+#### users Table
 ```python
 {
-    "_id": ObjectId,
-    "email": str,  # Unique index
-    "hashed_password": str,  # Bcrypt hash with cost 12
+    "PK": "USER#{user_id}",  # Partition key
+    "SK": "PROFILE",  # Sort key
+    "email": str,  # GSI partition key
+    "hashed_password": str,  # Bcrypt hash
     "instagram_user_id": str | None,
     "instagram_username": str | None,
-    "instagram_access_token": str | None,  # AES-256 encrypted
-    "instagram_refresh_token": str | None,  # AES-256 encrypted
-    "instagram_token_expiry": datetime | None,
-    "timezone": str,  # Default "UTC", IANA timezone format
+    "instagram_access_token_encrypted": str | None,  # KMS encrypted
+    "instagram_refresh_token_encrypted": str | None,  # KMS encrypted
+    "instagram_token_expiry": int | None,  # Unix timestamp
+    "timezone": str,  # Default "UTC"
     "role": str,  # "user" or "admin"
     "daily_campaign_quota": int,  # Default 50
-    "campaigns_generated_today": int,  # Reset daily
-    "quota_reset_date": date,
-    "created_at": datetime,
-    "updated_at": datetime
+    "campaigns_generated_today": int,
+    "quota_reset_date": str,  # ISO date
+    "created_at": int,  # Unix timestamp
+    "updated_at": int  # Unix timestamp
 }
 
-# Indexes:
-# - email: unique
-# - instagram_user_id: sparse
+# GSI: email-index
+# - PK: email
+# - SK: (none)
 ```
 
-#### products Collection
+#### products Table
 ```python
 {
-    "_id": ObjectId,
-    "user_id": ObjectId,  # Foreign key to users
-    "name": str,  # Max 200 characters
-    "description": str,  # Max 2000 characters
+    "PK": "USER#{user_id}",  # Partition key
+    "SK": "PRODUCT#{product_id}",  # Sort key
+    "product_id": str,  # UUID
+    "name": str,
+    "description": str,
     "image_url": str,  # S3 URL
     "image_analysis": {
-        "labels": list[str],  # Top 5 labels
+        "labels": list[str],
         "confidence_scores": list[float],
         "has_faces": bool,
-        "dominant_colors": list[str],  # Hex color codes
+        "dominant_colors": list[str],
         "is_safe": bool
     },
-    "created_at": datetime,
-    "updated_at": datetime,
-    "deleted_at": datetime | None  # Soft delete
+    "created_at": int,  # Unix timestamp
+    "updated_at": int,
+    "deleted_at": int | None  # Soft delete
 }
 
-# Indexes:
-# - user_id: ascending
-# - (user_id, created_at): compound, descending on created_at
-# - deleted_at: sparse (for filtering soft-deleted)
+# Access pattern: Get all products for user
+# Query: PK = USER#{user_id}, SK begins_with PRODUCT#
 ```
 
-#### campaigns Collection
+#### campaigns Table
 ```python
 {
-    "_id": ObjectId,
-    "user_id": ObjectId,  # Foreign key to users
-    "product_id": ObjectId,  # Foreign key to products
-    "image_url": str,  # S3 URL (copied from product)
-    "caption": str,  # Max 2200 characters (Instagram limit)
-    "hashtags": list[str],  # Max 10 hashtags
-    "tone": str,  # "luxury" | "minimal" | "festive" | "casual"
-    "status": str,  # "draft" | "scheduled" | "publishing" | "published" | "failed" | "cancelled"
-    "scheduled_time": datetime | None,
-    "published_at": datetime | None,
+    "PK": "USER#{user_id}",  # Partition key
+    "SK": "CAMPAIGN#{campaign_id}",  # Sort key
+    "campaign_id": str,  # UUID
+    "product_id": str,
+    "image_url": str,
+    "caption": str,
+    "hashtags": list[str],
+    "tone": str,
+    "cta_style": str,  # From Campaign Strategy Agent
+    "hook_pattern": str,  # From Campaign Strategy Agent
+    "status": str,  # "draft" | "scheduled" | "publishing" | "published" | "failed"
+    "scheduled_time": int | None,  # Unix timestamp
+    "published_at": int | None,
     "instagram_post_id": str | None,
-    "publish_attempts": int,  # Default 0
+    "publish_attempts": int,
     "error_message": str | None,
-    "idempotency_key": str,  # UUIDv4, unique index
-    "bedrock_model_version": str,  # e.g., "claude-3-sonnet-20240229"
-    "prompt_template_version": str,  # e.g., "v1.0"
-    "created_at": datetime,
-    "updated_at": datetime
+    "idempotency_key": str,
+    "bedrock_model_version": str,
+    "created_at": int,
+    "updated_at": int
 }
 
-# Indexes:
-# - user_id: ascending
-# - (user_id, scheduled_time): compound
-# - (user_id, status): compound
-# - scheduled_time: ascending (for worker queries)
-# - idempotency_key: unique
-# - instagram_post_id: sparse
+# GSI: status-index (for worker queries)
+# - PK: status
+# - SK: scheduled_time
 ```
 
-
-#### analytics Collection
+#### analytics Table
 ```python
 {
-    "_id": ObjectId,
-    "campaign_id": ObjectId,  # Foreign key to campaigns
-    "user_id": ObjectId,  # Denormalized for query efficiency
+    "PK": "CAMPAIGN#{campaign_id}",  # Partition key
+    "SK": "ANALYTICS#{timestamp}",  # Sort key
+    "user_id": str,  # Denormalized
     "instagram_post_id": str,
     "likes": int,
     "comments": int,
     "reach": int,
     "impressions": int,
-    "engagement_rate": float,  # Calculated: (likes + comments) / reach
-    "fetched_at": datetime,
-    "created_at": datetime
+    "engagement_rate": float,
+    "fetched_at": int,  # Unix timestamp
+    "created_at": int
 }
 
-# Indexes:
-# - campaign_id: ascending
-# - (user_id, fetched_at): compound, descending on fetched_at
-# - instagram_post_id: ascending
+# Access pattern: Get analytics for campaign
+# Query: PK = CAMPAIGN#{campaign_id}
 ```
 
-#### rate_limits Collection (for distributed rate limiting)
+### Campaign Intelligence Memory (DynamoDB)
+
+This is the core AI learning component. Each business has its own memory that stores learned patterns.
+
+#### memory Table
 ```python
 {
-    "_id": str,  # Format: "rate_limit:{user_id}:{endpoint}"
-    "tokens": int,  # Current token count
-    "capacity": int,  # Maximum tokens
-    "refill_rate": int,  # Tokens per minute
-    "last_refill": datetime,
-    "expires_at": datetime  # TTL index
+    "PK": "USER#{user_id}",  # Partition key
+    "SK": "MEMORY#{memory_type}",  # Sort key
+    "memory_type": str,  # "business_profile" | "performance_insights" | "content_patterns" | "engagement_patterns"
+    "data": dict,  # Memory-specific data structure
+    "confidence": float,  # 0.0-1.0, how confident we are in this learning
+    "sample_size": int,  # Number of campaigns this learning is based on
+    "last_updated": int,  # Unix timestamp
+    "created_at": int
 }
+```
 
-# Indexes:
-# - expires_at: TTL index with expireAfterSeconds=0
+#### Memory Type: business_profile
+```python
+{
+    "PK": "USER#{user_id}",
+    "SK": "MEMORY#business_profile",
+    "memory_type": "business_profile",
+    "data": {
+        "business_type": str,  # e.g., "sustainable fashion boutique"
+        "target_audience": {
+            "demographics": str,
+            "interests": list[str],
+            "values": list[str]
+        },
+        "brand_voice": {
+            "tone": str,
+            "personality_traits": list[str],
+            "language_style": str
+        },
+        "value_propositions": list[str]
+    },
+    "confidence": 0.85,
+    "sample_size": 15,  # Based on 15 products analyzed
+    "last_updated": 1704067200,
+    "created_at": 1703980800
+}
+```
+
+#### Memory Type: performance_insights
+```python
+{
+    "PK": "USER#{user_id}",
+    "SK": "MEMORY#performance_insights",
+    "memory_type": "performance_insights",
+    "data": {
+        "best_tone": {
+            "tone": "luxury",
+            "avg_engagement_rate": 4.2,
+            "sample_size": 8
+        },
+        "best_cta_style": {
+            "style": "question-based",
+            "avg_engagement_rate": 4.5,
+            "sample_size": 5
+        },
+        "best_hook_pattern": {
+            "pattern": "benefit-focused",
+            "avg_engagement_rate": 4.8,
+            "sample_size": 6
+        },
+        "tone_performance": {
+            "luxury": {"avg_engagement": 4.2, "count": 8},
+            "minimal": {"avg_engagement": 3.8, "count": 5},
+            "festive": {"avg_engagement": 3.5, "count": 3},
+            "casual": {"avg_engagement": 3.9, "count": 4}
+        },
+        "success_factors": [
+            "Short captions (120-140 chars) perform better",
+            "Questions as CTAs increase comments",
+            "Product benefit hooks drive engagement"
+        ],
+        "patterns_to_avoid": [
+            "Generic hashtags (#love, #instagood) show low reach",
+            "Multiple emojis reduce engagement"
+        ]
+    },
+    "confidence": 0.75,
+    "sample_size": 20,  # Based on 20 published campaigns
+    "last_updated": 1704067200,
+    "created_at": 1703980800
+}
+```
+
+#### Memory Type: content_patterns
+```python
+{
+    "PK": "USER#{user_id}",
+    "SK": "MEMORY#content_patterns",
+    "memory_type": "content_patterns",
+    "data": {
+        "best_caption_structures": [
+            {
+                "structure": "Hook + Benefit + CTA",
+                "example": "Tired of boring outfits? ✨ Our new collection brings...",
+                "avg_engagement": 4.5,
+                "count": 6
+            },
+            {
+                "structure": "Question + Answer + CTA",
+                "example": "What makes great style? Quality fabrics...",
+                "avg_engagement": 4.2,
+                "count": 4
+            }
+        ],
+        "effective_hashtag_combinations": [
+            {
+                "hashtags": ["#sustainablefashion", "#ethicalstyle", "#slowfashion"],
+                "avg_reach": 1250,
+                "count": 5
+            }
+        ],
+        "emoji_usage": {
+            "optimal_count": 2,
+            "best_emojis": ["✨", "🌿", "💚"],
+            "placement": "end_of_caption"
+        },
+        "caption_length": {
+            "optimal_range": [120, 150],
+            "avg_engagement_by_length": {
+                "short (80-120)": 3.5,
+                "medium (120-160)": 4.3,
+                "long (160-200)": 3.8
+            }
+        }
+    },
+    "confidence": 0.70,
+    "sample_size": 18,
+    "last_updated": 1704067200,
+    "created_at": 1703980800
+}
+```
+
+#### Memory Type: engagement_patterns
+```python
+{
+    "PK": "USER#{user_id}",
+    "SK": "MEMORY#engagement_patterns",
+    "memory_type": "engagement_patterns",
+    "data": {
+        "best_posting_times": [
+            {
+                "day_of_week": "Monday",
+                "hour": 18,
+                "avg_engagement_rate": 4.8,
+                "count": 3
+            },
+            {
+                "day_of_week": "Wednesday",
+                "hour": 12,
+                "avg_engagement_rate": 4.5,
+                "count": 4
+            }
+        ],
+        "engagement_by_day": {
+            "Monday": {"avg_engagement": 4.2, "count": 5},
+            "Tuesday": {"avg_engagement": 3.8, "count": 3},
+            "Wednesday": {"avg_engagement": 4.5, "count": 4},
+            "Thursday": {"avg_engagement": 3.9, "count": 3},
+            "Friday": {"avg_engagement": 4.0, "count": 3},
+            "Saturday": {"avg_engagement": 3.5, "count": 1},
+            "Sunday": {"avg_engagement": 3.7, "count": 1}
+        },
+        "engagement_by_hour": {
+            "6": {"avg_engagement": 3.2, "count": 1},
+            "12": {"avg_engagement": 4.3, "count": 5},
+            "18": {"avg_engagement": 4.6, "count": 8},
+            "21": {"avg_engagement": 3.9, "count": 6}
+        },
+        "audience_activity_pattern": "evening_peak"  # Inferred by AI
+    },
+    "confidence": 0.80,
+    "sample_size": 20,
+    "last_updated": 1704067200,
+    "created_at": 1703980800
+}
 ```
 
 ### Pydantic Schemas
@@ -903,16 +1414,6 @@ class UserRegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     timezone: str = Field(default="UTC")
-    
-    @field_validator("password")
-    def validate_password_strength(cls, v):
-        if not any(c.isupper() for c in v):
-            raise ValueError("Password must contain uppercase letter")
-        if not any(c.islower() for c in v):
-            raise ValueError("Password must contain lowercase letter")
-        if not any(c.isdigit() for c in v):
-            raise ValueError("Password must contain digit")
-        return v
 
 class UserLoginRequest(BaseModel):
     email: EmailStr
@@ -930,16 +1431,7 @@ class CampaignGenerateRequest(BaseModel):
 
 class CampaignScheduleRequest(BaseModel):
     scheduled_time: datetime
-    
-    @field_validator("scheduled_time")
-    def validate_future_time(cls, v):
-        if v <= datetime.utcnow():
-            raise ValueError("Scheduled time must be in the future")
-        if v > datetime.utcnow() + timedelta(days=90):
-            raise ValueError("Cannot schedule more than 90 days in advance")
-        return v
 ```
-
 
 #### Response Schemas
 ```python
@@ -953,23 +1445,7 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-    expires_in: int  # Seconds
-
-class UserResponse(BaseModel):
-    id: str
-    email: str
-    instagram_connected: bool
-    instagram_username: str | None
-    timezone: str
-    created_at: datetime
-
-class ProductResponse(BaseModel):
-    id: str
-    name: str
-    description: str
-    image_url: str
-    image_analysis: dict
-    created_at: datetime
+    expires_in: int
 
 class CampaignResponse(BaseModel):
     id: str
@@ -977,7 +1453,10 @@ class CampaignResponse(BaseModel):
     caption: str
     hashtags: list[str]
     tone: str
+    cta_style: str
+    hook_pattern: str
     status: str
+    recommended_time: datetime | None
     scheduled_time: datetime | None
     published_at: datetime | None
     instagram_post_id: str | None
@@ -995,6 +1474,39 @@ class AnalyticsResponse(BaseModel):
 
 ### Domain Models (Internal)
 ```python
+@dataclass
+class BusinessProfile:
+    business_type: str
+    target_audience: dict
+    brand_voice: dict
+    value_propositions: list[str]
+
+@dataclass
+class CampaignStrategy:
+    recommended_tone: str
+    cta_style: str
+    hook_pattern: str
+    content_angle: str
+    hashtag_strategy: str
+    reasoning: str
+
+@dataclass
+class GeneratedContent:
+    caption: str
+    hashtags: list[str]
+    emojis: list[str]
+
+@dataclass
+class PerformanceInsights:
+    performance_vs_average: str
+    success_factors: list[str]
+    patterns_to_apply: list[str]
+    patterns_to_avoid: list[str]
+    best_tone: str
+    best_cta_style: str
+    best_posting_time: str
+    confidence: float
+
 @dataclass
 class User:
     id: str
@@ -1921,6 +2433,66 @@ async def get_analytics_summary(
 
 **Validates: Requirements 25.1**
 
+### Property 26: Agent Orchestration Sequence
+
+*For any* campaign generation request, the Agent Orchestrator should invoke agents in the correct sequence: Business Profiling → Campaign Strategy → Content Generation → Scheduling Intelligence, and each agent should receive outputs from the previous agent as inputs.
+
+**Validates: Requirements 5.1, 5.2, 5.3**
+
+### Property 27: Memory Read Before Agent Reasoning
+
+*For any* AI agent invocation (except first-time users), the agent should retrieve relevant data from Campaign Intelligence Memory before calling Bedrock, ensuring learned patterns inform AI reasoning.
+
+**Validates: Requirements 5.6**
+
+### Property 28: Memory Update After Analytics
+
+*For any* published campaign with collected analytics, the Performance Learning Agent should analyze the data and update Campaign Intelligence Memory with new insights, increasing the sample_size counter.
+
+**Validates: Requirements 8.1, 8.2**
+
+### Property 29: Business Profile Consistency
+
+*For any* user with an existing business profile in Memory, subsequent Business Profiling Agent invocations should produce profiles that are consistent with (not contradictory to) the stored profile, unless significant new data suggests a profile update.
+
+**Validates: Requirements 5.1**
+
+### Property 30: Strategy Incorporates Performance Insights
+
+*For any* Campaign Strategy Agent invocation for a user with performance insights in Memory, the generated strategy should reference and incorporate the best-performing patterns (tone, CTA style, hook pattern) from memory.
+
+**Validates: Requirements 5.2, 5.6**
+
+### Property 31: Content Matches Strategy
+
+*For any* generated campaign content, the caption tone should match the strategy's recommended_tone, the CTA should match the cta_style, and the opening should follow the hook_pattern specified in the strategy.
+
+**Validates: Requirements 5.2, 5.3**
+
+### Property 32: Scheduling Uses Historical Data
+
+*For any* Scheduling Intelligence Agent invocation for a user with engagement patterns in Memory, the recommended posting time should align with the best-performing times from historical data (within the top 3 time slots).
+
+**Validates: Requirements 6.1, 8.4**
+
+### Property 33: Learning Confidence Increases with Sample Size
+
+*For any* memory update by the Performance Learning Agent, if the new sample_size is greater than the previous sample_size, the confidence score should be equal to or greater than the previous confidence (learning improves with more data).
+
+**Validates: Requirements 8.2**
+
+### Property 34: AI Agent Bedrock Invocation
+
+*For any* AI agent reasoning task (business profiling, strategy decision, content generation, scheduling, performance learning), the agent should invoke Amazon Bedrock with a structured prompt and receive a parseable JSON response.
+
+**Validates: Requirements 5.1, 5.2, 5.3, 5.4, 8.1**
+
+### Property 35: Memory Isolation Per User
+
+*For any* two different users, their Campaign Intelligence Memory data should be completely isolated, with no user able to access or be influenced by another user's learned patterns.
+
+**Validates: Requirements 26.1, 26.3**
+
 
 ## Error Handling
 
@@ -2142,128 +2714,149 @@ async def generic_error_handler(request: Request, exc: Exception):
 
 ### Overview
 
-The platform employs a comprehensive testing strategy combining unit tests, integration tests, property-based tests, and end-to-end tests to ensure reliability and correctness.
+The platform employs a comprehensive testing strategy that accounts for AI agent behavior, multi-agent orchestration, and learning from Campaign Intelligence Memory. Testing combines unit tests, integration tests, property-based tests, and AI-specific validation.
 
 ### Testing Pyramid
 
 ```
          /\
-        /E2E\         <- 5% (Critical user flows)
+        /E2E\         <- 5% (Critical user flows with AI agents)
        /------\
-      /  INT   \      <- 25% (API endpoints, service integration)
+      /  INT   \      <- 25% (Agent orchestration, API endpoints)
      /----------\
-    /   UNIT     \    <- 50% (Service layer, business logic)
+    /   UNIT     \    <- 40% (Agent logic, utility functions)
    /--------------\
   / PROPERTY-BASED \ <- 20% (Correctness properties)
  /------------------\
+  /  AI VALIDATION  \ <- 10% (Bedrock response validation, memory consistency)
+ /--------------------\
 ```
 
 ### Unit Testing
 
-**Scope:** Service layer components, utility functions, algorithms
+**Scope:** Agent logic, orchestrator, utility functions, memory operations
 
 **Framework:** pytest with pytest-asyncio for async tests
 
-**Coverage Target:** 80% line coverage minimum
+**Coverage Target:** 70% line coverage minimum (AI outputs are non-deterministic)
 
 **Approach:**
-- Mock all external dependencies (database, AWS services, HTTP clients)
-- Test each service method in isolation
-- Focus on business logic correctness
-- Test error handling paths
+- Mock Bedrock API responses with realistic AI-generated content
+- Test agent prompt construction
+- Test agent response parsing
+- Test memory read/write operations
+- Test orchestrator agent sequencing
 
 **Example:**
 ```python
 @pytest.mark.asyncio
-async def test_campaign_service_generate_campaign():
+async def test_business_profiling_agent():
     # Arrange
-    mock_product_repo = Mock(ProductRepository)
     mock_bedrock = Mock(BedrockClient)
-    mock_scheduler = Mock(SchedulerService)
+    mock_memory = Mock(CampaignMemoryService)
     
-    mock_product_repo.get_by_id.return_value = Product(
-        id="prod-123",
-        name="Test Product",
-        image_analysis={"labels": ["Clothing", "Fashion"]}
-    )
-    
+    # Mock Bedrock response
     mock_bedrock.invoke_model.return_value = {
-        "caption": "Check out our new collection!",
-        "hashtags": ["fashion", "style"]
+        "content": [{
+            "text": json.dumps({
+                "business_type": "sustainable fashion boutique",
+                "target_audience": {
+                    "demographics": "25-40 year old women",
+                    "interests": ["sustainability", "fashion", "ethical shopping"],
+                    "values": ["environmental consciousness", "quality over quantity"]
+                },
+                "brand_voice": {
+                    "tone": "warm and authentic",
+                    "personality_traits": ["eco-conscious", "transparent", "community-focused"],
+                    "language_style": "conversational yet professional"
+                },
+                "value_propositions": ["sustainable materials", "ethical production", "timeless designs"]
+            })
+        }]
     }
     
-    service = CampaignService(
-        campaign_repo=Mock(),
-        product_repo=mock_product_repo,
+    agent = BusinessProfilingAgent(
         bedrock_client=mock_bedrock,
-        scheduler_service=mock_scheduler
+        memory_service=mock_memory
     )
     
     # Act
-    campaign = await service.generate_campaign(
-        user_id="user-123",
-        product_id="prod-123",
-        tone="luxury",
-        idempotency_key="key-123"
-    )
+    profile = await agent.analyze_business(user_id="user-123")
     
     # Assert
-    assert campaign.caption == "Check out our new collection!"
-    assert len(campaign.hashtags) <= 10
-    assert "#smallbusiness" in campaign.hashtags
+    assert profile.business_type == "sustainable fashion boutique"
+    assert "sustainability" in profile.target_audience["interests"]
+    assert profile.brand_voice["tone"] == "warm and authentic"
+    
+    # Verify Bedrock was called with proper prompt
     mock_bedrock.invoke_model.assert_called_once()
+    call_args = mock_bedrock.invoke_model.call_args
+    assert "business analyst AI" in str(call_args)
+    
+    # Verify memory was updated
+    mock_memory.store_business_profile.assert_called_once_with("user-123", profile)
 ```
 
 ### Integration Testing
 
-**Scope:** API endpoints, database operations, service interactions
+**Scope:** Multi-agent orchestration, API endpoints, memory persistence
 
-**Framework:** pytest with TestClient (FastAPI)
+**Framework:** pytest with mocked Bedrock
 
-**Database:** Test MongoDB instance or MongoDB in-memory
+**Database:** Test DynamoDB Local or mocked DynamoDB
 
 **Approach:**
-- Test complete request-response cycles
-- Use real database (test instance)
-- Mock only external APIs (Instagram, Bedrock, Rekognition)
-- Test authentication and authorization
-- Test error responses
+- Test complete agent orchestration workflow
+- Use real DynamoDB (local) for memory operations
+- Mock Bedrock API with realistic responses
+- Test memory read/write consistency
+- Test agent sequencing and data flow
 
 **Example:**
 ```python
 @pytest.mark.asyncio
-async def test_create_product_endpoint(client: TestClient, auth_token: str):
+async def test_campaign_generation_orchestration():
     # Arrange
-    product_data = {
-        "name": "Test Product",
-        "description": "A test product"
-    }
-    files = {"image": ("test.jpg", image_bytes, "image/jpeg")}
+    orchestrator = AgentOrchestrator(
+        business_profiling_agent=mock_profiling_agent,
+        campaign_strategy_agent=mock_strategy_agent,
+        content_generation_agent=mock_content_agent,
+        scheduling_intelligence_agent=mock_scheduling_agent
+    )
+    
+    # Mock each agent's response
+    mock_profiling_agent.analyze_business.return_value = BusinessProfile(...)
+    mock_strategy_agent.decide_strategy.return_value = CampaignStrategy(...)
+    mock_content_agent.generate_content.return_value = GeneratedContent(...)
+    mock_scheduling_agent.determine_optimal_time.return_value = datetime(...)
     
     # Act
-    response = client.post(
-        "/api/v1/products",
-        data=product_data,
-        files=files,
-        headers={"Authorization": f"Bearer {auth_token}"}
+    campaign = await orchestrator.generate_campaign(
+        user_id="user-123",
+        product_id="prod-456",
+        tone_preference="luxury"
     )
     
     # Assert
-    assert response.status_code == 201
-    data = response.json()
-    assert data["success"] is True
-    assert data["data"]["name"] == "Test Product"
-    assert "image_url" in data["data"]
+    # Verify agent invocation sequence
+    assert mock_profiling_agent.analyze_business.called
+    assert mock_strategy_agent.decide_strategy.called
+    assert mock_content_agent.generate_content.called
+    assert mock_scheduling_agent.determine_optimal_time.called
     
-    # Verify in database
-    product = await products_collection.find_one({"_id": ObjectId(data["data"]["id"])})
-    assert product is not None
-    assert product["user_id"] == get_user_id_from_token(auth_token)
+    # Verify data flow between agents
+    strategy_call_args = mock_strategy_agent.decide_strategy.call_args
+    assert strategy_call_args.kwargs["business_profile"] == mock_profiling_agent.analyze_business.return_value
+    
+    # Verify campaign structure
+    assert campaign.caption is not None
+    assert len(campaign.hashtags) <= 10
+    assert campaign.tone == "luxury"
 ```
 
 ### Property-Based Testing
 
-**Scope:** Correctness properties from design document
+**Scope:** Correctness properties from design document, including AI-specific properties
 
 **Framework:** Hypothesis (Python property-based testing library)
 
@@ -2272,10 +2865,210 @@ async def test_create_product_endpoint(client: TestClient, auth_token: str):
 **Approach:**
 - Generate random valid inputs
 - Test universal properties
-- Verify invariants hold across all inputs
+- Verify AI agent invariants
+- Test memory consistency properties
 - Each property test references design document property
 
 **Example:**
+```python
+from hypothesis import given, strategies as st
+
+@given(
+    user_id=st.uuids(),
+    campaign_count=st.integers(min_value=5, max_value=20)
+)
+@pytest.mark.asyncio
+async def test_property_memory_isolation_per_user(user_id: UUID, campaign_count: int):
+    """
+    Feature: autosocial-ai, Property 35: Memory Isolation Per User
+    
+    For any two different users, their Campaign Intelligence Memory data
+    should be completely isolated, with no user able to access or be
+    influenced by another user's learned patterns.
+    """
+    # Arrange
+    user1_id = str(user_id)
+    user2_id = str(uuid.uuid4())
+    memory_service = CampaignMemoryService()
+    
+    # Create memory for user1
+    user1_insights = PerformanceInsights(
+        best_tone="luxury",
+        best_cta_style="question-based",
+        confidence=0.8
+    )
+    await memory_service.update_insights(user1_id, user1_insights)
+    
+    # Create different memory for user2
+    user2_insights = PerformanceInsights(
+        best_tone="casual",
+        best_cta_style="direct",
+        confidence=0.7
+    )
+    await memory_service.update_insights(user2_id, user2_insights)
+    
+    # Act
+    retrieved_user1 = await memory_service.get_performance_insights(user1_id)
+    retrieved_user2 = await memory_service.get_performance_insights(user2_id)
+    
+    # Assert
+    assert retrieved_user1.best_tone == "luxury"
+    assert retrieved_user2.best_tone == "casual"
+    assert retrieved_user1.best_tone != retrieved_user2.best_tone
+    
+    # Verify no cross-contamination
+    assert retrieved_user1 != retrieved_user2
+
+@given(
+    sample_sizes=st.lists(st.integers(min_value=1, max_value=50), min_size=2, max_size=10)
+)
+@pytest.mark.asyncio
+async def test_property_learning_confidence_increases(sample_sizes: list[int]):
+    """
+    Feature: autosocial-ai, Property 33: Learning Confidence Increases with Sample Size
+    
+    For any memory update, if the new sample_size is greater than the previous
+    sample_size, the confidence score should be equal to or greater than the
+    previous confidence.
+    """
+    # Arrange
+    user_id = str(uuid.uuid4())
+    memory_service = CampaignMemoryService()
+    learning_agent = PerformanceLearningAgent(Mock(), memory_service)
+    
+    sorted_samples = sorted(sample_sizes)
+    previous_confidence = 0.0
+    
+    # Act & Assert
+    for sample_size in sorted_samples:
+        # Simulate learning with increasing sample size
+        insights = PerformanceInsights(
+            best_tone="luxury",
+            confidence=min(0.5 + (sample_size / 100), 0.95),  # Confidence increases with samples
+            sample_size=sample_size
+        )
+        await memory_service.update_insights(user_id, insights)
+        
+        retrieved = await memory_service.get_performance_insights(user_id)
+        
+        # Confidence should not decrease as sample size increases
+        assert retrieved.confidence >= previous_confidence
+        assert retrieved.sample_size == sample_size
+        
+        previous_confidence = retrieved.confidence
+```
+
+### AI Validation Testing
+
+**Scope:** Bedrock response validation, prompt quality, memory consistency
+
+**Framework:** pytest with real Bedrock API calls (limited)
+
+**Approach:**
+- Validate Bedrock responses are parseable JSON
+- Test prompt construction produces valid AI responses
+- Verify AI outputs match expected schema
+- Test memory consistency after updates
+- Use cached responses to minimize API costs
+
+**Example:**
+```python
+@pytest.mark.asyncio
+@pytest.mark.slow  # Mark as slow test (real API call)
+async def test_bedrock_response_validation():
+    """
+    Validate that Business Profiling Agent prompts produce parseable responses.
+    This test makes a real Bedrock API call (run sparingly).
+    """
+    # Arrange
+    bedrock_client = BedrockClient()  # Real client
+    agent = BusinessProfilingAgent(bedrock_client, Mock())
+    
+    # Act
+    try:
+        profile = await agent.analyze_business(user_id="test-user")
+        
+        # Assert
+        assert isinstance(profile, BusinessProfile)
+        assert profile.business_type is not None
+        assert len(profile.business_type) > 0
+        assert isinstance(profile.target_audience, dict)
+        assert isinstance(profile.brand_voice, dict)
+        assert isinstance(profile.value_propositions, list)
+        
+    except json.JSONDecodeError:
+        pytest.fail("Bedrock response was not valid JSON")
+    except KeyError as e:
+        pytest.fail(f"Bedrock response missing required field: {e}")
+
+@pytest.mark.asyncio
+async def test_memory_consistency_after_learning():
+    """
+    Verify Campaign Intelligence Memory remains consistent after updates.
+    """
+    # Arrange
+    user_id = str(uuid.uuid4())
+    memory_service = CampaignMemoryService()
+    
+    # Initial memory state
+    initial_insights = PerformanceInsights(
+        best_tone="luxury",
+        best_cta_style="direct",
+        confidence=0.6,
+        sample_size=10
+    )
+    await memory_service.update_insights(user_id, initial_insights)
+    
+    # Act - Update with new learning
+    updated_insights = PerformanceInsights(
+        best_tone="luxury",  # Same
+        best_cta_style="question-based",  # Changed
+        confidence=0.75,  # Increased
+        sample_size=15  # Increased
+    )
+    await memory_service.update_insights(user_id, updated_insights)
+    
+    # Assert
+    retrieved = await memory_service.get_performance_insights(user_id)
+    assert retrieved.best_tone == "luxury"  # Consistent
+    assert retrieved.best_cta_style == "question-based"  # Updated
+    assert retrieved.confidence == 0.75
+    assert retrieved.sample_size == 15
+```
+
+### End-to-End Testing
+
+**Scope:** Complete user flows with AI agent orchestration
+
+**Framework:** Playwright for frontend, pytest for backend
+
+**Approach:**
+- Test complete campaign generation flow with mocked Bedrock
+- Verify memory updates after analytics collection
+- Test learning loop (generate → publish → analyze → learn → improve)
+- Use staging environment with test data
+
+**Critical Flows:**
+1. User registration → Login → Connect Instagram → Upload product → Generate campaign (AI agents) → Schedule → Publish → Analytics → Learning
+2. Repeat campaign generation → Verify improved content based on memory
+3. Multiple campaigns → Verify memory confidence increases
+
+### Mocking Strategy
+
+**External Services to Mock:**
+- Amazon Bedrock (use pre-recorded responses for consistency)
+- Instagram Graph API (use httpx-mock)
+- Amazon Rekognition (use boto3 stubber)
+- Amazon S3 (use moto)
+- Amazon SQS (use moto)
+- AWS KMS (use moto)
+
+**Do NOT Mock:**
+- DynamoDB (use DynamoDB Local for testing)
+- Campaign Intelligence Memory operations
+- Agent orchestration logic
+
+**Example Mock:**
 ```python
 from hypothesis import given, strategies as st
 
