@@ -1,0 +1,347 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: PostPilot AI - Serverless Multi-Agent Social Media Automation Platform
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        DYNAMODB_USERS_TABLE: !Ref UsersTable
+        DYNAMODB_PRODUCTS_TABLE: !Ref ProductsTable
+        DYNAMODB_CAMPAIGNS_TABLE: !Ref CampaignsTable
+        DYNAMODB_ANALYTICS_TABLE: !Ref AnalyticsTable
+        DYNAMODB_MEMORY_TABLE: !Ref MemoryTable
+        DYNAMODB_RATE_LIMITS_TABLE: !Ref RateLimitsTable
+        S3_BUCKET_NAME: !Ref MediaBucket
+        SQS_QUEUE_URL: !Ref PublishingQueue
+        BEDROCK_MODEL_ID: anthropic.claude-3-5-sonnet-20241022-v2:0
+        RATE_LIMIT_REQUESTS_PER_MINUTE: 100
+        DAILY_CAMPAIGN_QUOTA: 50
+
+Resources:
+  # DynamoDB Tables
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: postpilot-users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  ProductsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: postpilot-products
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  CampaignsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: postpilot-campaigns
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: scheduled_time
+          AttributeType: N
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: StatusScheduledTimeIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: scheduled_time
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  AnalyticsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: postpilot-analytics
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+
+  MemoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: postpilot-memory
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+
+  RateLimitsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: postpilot-rate-limits
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
+  # S3 Bucket
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub postpilot-media-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # SQS Queues
+  PublishingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: postpilot-publishing-queue
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: postpilot-dlq
+      MessageRetentionPeriod: 1209600
+
+  # Lambda Functions
+  AgentOrchestratorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: postpilot-agent-orchestrator
+      CodeUri: lambdas/orchestrator/
+      Handler: handler.lambda_handler
+      Timeout: 60
+      MemorySize: 1024
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CampaignsTable
+        - LambdaInvokePolicy:
+            FunctionName: !Ref BusinessProfilingFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref CampaignStrategyFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ContentGenerationFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref SchedulingIntelligenceFunction
+
+  BusinessProfilingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: postpilot-business-profiling
+      CodeUri: lambdas/agents/
+      Handler: business_profiling.lambda_handler
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MemoryTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
+
+  CampaignStrategyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: postpilot-campaign-strategy
+      CodeUri: lambdas/agents/
+      Handler: campaign_strategy.lambda_handler
+      Timeout: 30
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref MemoryTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref CampaignsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
+
+  ContentGenerationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: postpilot-content-generation
+      CodeUri: lambdas/agents/
+      Handler: content_generation.lambda_handler
+      Timeout: 30
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref MemoryTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
+
+  SchedulingIntelligenceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: postpilot-scheduling-intelligence
+      CodeUri: lambdas/agents/
+      Handler: scheduling_intelligence.lambda_handler
+      Timeout: 30
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref MemoryTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
+
+  PublishingWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: postpilot-publishing-worker
+      CodeUri: lambdas/workers/
+      Handler: publishing_worker.lambda_handler
+      Timeout: 120
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt PublishingQueue.Arn
+            BatchSize: 1
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CampaignsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - S3ReadPolicy:
+            BucketName: !Ref MediaBucket
+
+  AnalyticsCollectorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: postpilot-analytics-collector
+      CodeUri: lambdas/workers/
+      Handler: analytics_collector.lambda_handler
+      Timeout: 300
+      Events:
+        ScheduledEvent:
+          Type: Schedule
+          Properties:
+            Schedule: rate(6 hours)
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CampaignsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnalyticsTable
+        - LambdaInvokePolicy:
+            FunctionName: !Ref PerformanceLearningFunction
+
+  PerformanceLearningFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: postpilot-performance-learning
+      CodeUri: lambdas/agents/
+      Handler: performance_learning.lambda_handler
+      Timeout: 60
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AnalyticsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref CampaignsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MemoryTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
+
+Outputs:
+  UsersTableName:
+    Description: DynamoDB Users Table Name
+    Value: !Ref UsersTable
+  
+  ProductsTableName:
+    Description: DynamoDB Products Table Name
+    Value: !Ref ProductsTable
+  
+  CampaignsTableName:
+    Description: DynamoDB Campaigns Table Name
+    Value: !Ref CampaignsTable
+  
+  AnalyticsTableName:
+    Description: DynamoDB Analytics Table Name
+    Value: !Ref AnalyticsTable
+  
+  MemoryTableName:
+    Description: DynamoDB Memory Table Name
+    Value: !Ref MemoryTable
+  
+  MediaBucketName:
+    Description: S3 Media Bucket Name
+    Value: !Ref MediaBucket
+  
+  PublishingQueueUrl:
+    Description: SQS Publishing Queue URL
+    Value: !Ref PublishingQueue

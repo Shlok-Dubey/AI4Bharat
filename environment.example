@@ -1,0 +1,53 @@
+# AWS Configuration
+AWS_REGION=us-east-1
+AWS_ACCOUNT_ID=your-account-id
+
+# DynamoDB Tables
+DYNAMODB_USERS_TABLE=postpilot-users
+DYNAMODB_PRODUCTS_TABLE=postpilot-products
+DYNAMODB_CAMPAIGNS_TABLE=postpilot-campaigns
+DYNAMODB_ANALYTICS_TABLE=postpilot-analytics
+DYNAMODB_MEMORY_TABLE=postpilot-memory
+DYNAMODB_RATE_LIMITS_TABLE=postpilot-rate-limits
+
+# S3 Configuration
+S3_BUCKET_NAME=postpilot-media
+S3_REGION=us-east-1
+
+# SQS Configuration
+SQS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/your-account-id/postpilot-publishing-queue
+SQS_DLQ_URL=https://sqs.us-east-1.amazonaws.com/your-account-id/postpilot-dlq
+
+# AWS Secrets Manager
+ENCRYPTION_KEY_SECRET_NAME=postpilot/encryption-key
+JWT_SECRET_NAME=postpilot/jwt-secret
+INSTAGRAM_CLIENT_SECRET_NAME=postpilot/instagram-client-secret
+
+# Instagram OAuth
+INSTAGRAM_CLIENT_ID=your-instagram-client-id
+INSTAGRAM_REDIRECT_URI=https://your-domain.com/api/v1/instagram/callback
+
+# JWT Configuration
+JWT_ALGORITHM=HS256
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
+
+# Bedrock Configuration
+BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
+BEDROCK_REGION=us-east-1
+
+# Rate Limiting
+RATE_LIMIT_REQUESTS_PER_MINUTE=100
+DAILY_CAMPAIGN_QUOTA=50
+
+# Timeouts (seconds)
+INSTAGRAM_API_CONNECTION_TIMEOUT=10
+INSTAGRAM_API_RESPONSE_TIMEOUT=30
+BEDROCK_CONNECTION_TIMEOUT=5
+BEDROCK_RESPONSE_TIMEOUT=15
+REKOGNITION_CONNECTION_TIMEOUT=5
+REKOGNITION_RESPONSE_TIMEOUT=10
+
+# Circuit Breaker Configuration
+CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
+CIRCUIT_BREAKER_TIMEOUT_SECONDS=60

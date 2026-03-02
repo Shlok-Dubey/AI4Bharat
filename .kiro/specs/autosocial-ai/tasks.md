@@ -2,39 +2,41 @@
 
 ## Overview
 
-This implementation plan breaks down the PostPilot AI platform into discrete, incremental coding tasks. The platform is a production-ready SaaS application with Python FastAPI backend, React frontend, MongoDB database, and AWS cloud services integration. Each task builds on previous work, with property-based tests and unit tests integrated throughout to validate correctness early.
+This implementation plan breaks down the PostPilot AI platform into discrete, incremental coding tasks. The platform is a serverless AWS application with AWS Lambda (Python 3.11) backend, React frontend, Amazon DynamoDB database, and AWS cloud services integration. FastAPI is used only for local development. Each task builds on previous work, with property-based tests and unit tests integrated throughout to validate correctness early.
 
 ## Tasks
 
-- [ ] 1. Project scaffolding and infrastructure setup
-  - Create backend directory structure (main.py, config/, models/, schemas/, routes/, services/, repositories/, workers/, utils/)
+- [x] 1. Project scaffolding and infrastructure setup
+  - Create backend directory structure for Lambda functions (lambdas/orchestrator/, lambdas/agents/, lambdas/workers/, shared/models/, shared/schemas/, shared/services/, shared/utils/)
+  - Create local development API structure (dev_api/main.py, dev_api/routes/) using FastAPI for testing
   - Create frontend directory structure (src/components/, pages/, services/, hooks/, auth/, utils/)
-  - Set up Docker configuration (Dockerfile for API service, Dockerfile for worker service, docker-compose.yml)
   - Create environment.example file with all required environment variables
-  - Set up Python virtual environment and install dependencies (FastAPI, Motor, Pydantic, Boto3, PyJWT, Bcrypt, Cryptography, Hypothesis, pytest)
+  - Set up Python virtual environment and install dependencies (Boto3, Pydantic, PyJWT, Bcrypt, Cryptography, Hypothesis, pytest, FastAPI for local dev)
   - Set up React project with Vite and install dependencies (Axios, React Router)
   - Create .gitignore files for Python and Node.js
+  - Create AWS SAM or Serverless Framework configuration for Lambda deployment
   - _Requirements: 13.1, 13.7, 15.1, 15.2_
 
-- [ ] 2. Database models and repository layer
-  - [ ] 2.1 Create MongoDB connection manager
-    - Implement async MongoDB client with connection pooling
-    - Add health check method for database connectivity
+- [x] 2. Database models and repository layer
+  - [x] 2.1 Create DynamoDB connection manager
+    - Implement async DynamoDB client using aioboto3
+    - Add health check method for DynamoDB connectivity
     - Add graceful shutdown handling
     - _Requirements: 13.3, 17.6, 29.5_
   
-  - [ ] 2.2 Define Pydantic domain models
-    - Create User, Product, Campaign, Analytics, RateLimit domain models as dataclasses
+  - [x] 2.2 Define Pydantic domain models
+    - Create User, Product, Campaign, Analytics, Memory domain models as dataclasses
     - Include all fields from design document data models
-    - Add helper methods (to_document, from_document)
+    - Add helper methods (to_dynamodb_item, from_dynamodb_item)
     - _Requirements: 10.3_
   
-  - [ ] 2.3 Implement repository pattern for data access
+  - [x] 2.3 Implement repository pattern for data access
     - Create UserRepository with methods: create, get_by_id, get_by_email, update, delete
     - Create ProductRepository with methods: create, get_by_id, get_by_user, update, soft_delete
     - Create CampaignRepository with methods: create, get_by_id, get_by_user, atomic_status_update, get_scheduled
     - Create AnalyticsRepository with methods: create, get_by_campaign, get_by_user_and_date_range
-    - All repository methods should be async and include user_id filtering for tenant isolation
+    - Create MemoryRepository with methods: get_memory, update_memory, increment_confidence
+    - All repository methods should be async and use DynamoDB PK/SK patterns for tenant isolation
     - _Requirements: 10.1, 26.1, 26.2_
   
   - [ ]* 2.4 Write property test for tenant isolation
@@ -42,8 +44,8 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - **Validates: Requirements 3.3, 3.4, 26.1, 26.3**
 
 
-- [ ] 3. Authentication and authorization
-  - [ ] 3.1 Implement password hashing service
+- [x] 3. Authentication and authorization
+  - [x] 3.1 Implement password hashing service
     - Create hash_password function using bcrypt with cost factor 12
     - Create verify_password function for password verification
     - _Requirements: 1.1, 11.1_
@@ -52,7 +54,7 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - **Property 1: Password Hashing Integrity**
     - **Validates: Requirements 1.1, 11.1**
   
-  - [ ] 3.3 Implement JWT token service
+  - [x] 3.3 Implement JWT token service
     - Create generate_access_token function (60 min expiry)
     - Create generate_refresh_token function (7 days expiry)
     - Create verify_token function with expiry checking
@@ -64,28 +66,28 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - **Property 2: JWT Token Generation and Validation**
     - **Validates: Requirements 1.2, 1.3, 1.4**
   
-  - [ ] 3.5 Create authentication middleware
+  - [x] 3.5 Create authentication middleware
     - Implement get_current_user dependency for FastAPI
     - Extract JWT from Authorization header
     - Validate token and return user_id
     - Raise 401 error for invalid/expired tokens
     - _Requirements: 1.3, 1.4_
   
-  - [ ] 3.6 Create authorization helpers
+  - [x] 3.6 Create authorization helpers
     - Implement check_resource_ownership function
     - Verify user can only access their own resources
     - Raise 403 error for unauthorized access
     - _Requirements: 1.5, 26.3_
 
-- [ ] 4. User registration and login endpoints
-  - [ ] 4.1 Create Pydantic request/response schemas
+- [x] 4. User registration and login endpoints
+  - [x] 4.1 Create Pydantic request/response schemas
     - UserRegisterRequest with email and password validation
     - UserLoginRequest with email and password
     - TokenResponse with access_token and refresh_token
     - UserResponse with user details (no sensitive data)
     - _Requirements: 10.3_
   
-  - [ ] 4.2 Implement user registration endpoint
+  - [x] 4.2 Implement user registration endpoint
     - POST /api/v1/auth/register
     - Validate input with Pydantic
     - Check if email already exists
@@ -94,7 +96,7 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - Return tokens and user data
     - _Requirements: 1.1, 1.2_
   
-  - [ ] 4.3 Implement user login endpoint
+  - [x] 4.3 Implement user login endpoint
     - POST /api/v1/auth/login
     - Validate credentials
     - Verify password with bcrypt
@@ -102,14 +104,14 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - Return tokens and user data
     - _Requirements: 1.2_
   
-  - [ ] 4.4 Implement token refresh endpoint
+  - [x] 4.4 Implement token refresh endpoint
     - POST /api/v1/auth/refresh
     - Validate refresh token
     - Generate new access token
     - Return new access token
     - _Requirements: 1.2_
   
-  - [ ]* 4.5 Write integration tests for auth endpoints
+  - [x] 4.5 Write integration tests for auth endpoints
     - Test registration with valid/invalid data
     - Test login with valid/invalid credentials
     - Test token refresh
@@ -121,7 +123,7 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - Create get_encryption_key function to retrieve key from AWS Secrets Manager
     - Implement encrypt_token using AES-256-GCM
     - Implement decrypt_token with proper nonce and tag handling
-    - Cache encryption key in memory for 1 hour
+    - Cache encryption key in Lambda memory for duration of execution
     - _Requirements: 2.3, 11.2, 25.1, 25.2_
   
   - [ ]* 5.2 Write property test for encryption round-trip
@@ -287,38 +289,59 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
   
   - [ ]* 11.2 Write property test for hashtag generation algorithm
     - **Property 24: Hashtag Generation Algorithm**
-    - **Validates: Requirements 5.2**
+    - **Validates: Requirements 5.2_
   
-  - [ ] 11.3 Implement optimal posting time calculation
-    - Create calculate_optimal_posting_time function
-    - Use user timezone from database
-    - Suggest 18:00 for weekdays, 11:00 for weekends
-    - If time is past, add 1 day
-    - Convert to UTC for storage
+  - [ ] 11.3 Implement Business Profiling Lambda
+    - Create Lambda handler for business profiling
+    - Retrieve business context from DynamoDB Memory table
+    - Call Bedrock to reason about business identity
+    - Return business profile
+    - _Requirements: 5.1, 5.2_
+  
+  - [ ] 11.4 Implement Campaign Strategy Lambda
+    - Create Lambda handler for campaign strategy
+    - Receive business profile and product details
+    - Retrieve past performance from DynamoDB Memory
+    - Call Bedrock to decide optimal strategy
+    - Return strategy (tone, CTA, hook pattern)
+    - _Requirements: 5.1, 5.2_
+  
+  - [ ] 11.5 Implement Content Generation Lambda
+    - Create Lambda handler for content generation
+    - Receive strategy and product details
+    - Retrieve best-performing patterns from DynamoDB Memory
+    - Call Bedrock to generate caption and hashtags
+    - Apply hashtag generation algorithm
+    - Return generated content
+    - _Requirements: 5.1, 5.2_
+  
+  - [ ] 11.6 Implement Scheduling Intelligence Lambda
+    - Create Lambda handler for scheduling intelligence
+    - Retrieve engagement patterns from DynamoDB Memory
+    - Call Bedrock to determine optimal posting time
+    - Return scheduling recommendation
     - _Requirements: 5.2_
   
-  - [ ] 11.4 Implement campaign generation with Bedrock
-    - Create generate_campaign method in CampaignService
-    - Check idempotency_key for duplicate requests
-    - Retrieve product with image analysis
-    - Construct Bedrock prompt with product details and tone
-    - Call Bedrock API with Claude 3 Sonnet model
-    - Parse JSON response for caption and hashtags
-    - Apply hashtag generation algorithm
-    - Calculate optimal posting time
-    - Create campaign in database with status "draft"
+  - [ ] 11.7 Implement Agent Orchestrator Lambda
+    - Create Lambda handler for orchestration
+    - Invoke Business Profiling Lambda
+    - Invoke Campaign Strategy Lambda with profile
+    - Invoke Content Generation Lambda with strategy
+    - Invoke Scheduling Intelligence Lambda
+    - Aggregate all agent outputs
+    - Store campaign in DynamoDB with status "draft"
     - Store bedrock_model_version and prompt_template_version
+    - Return complete campaign
     - _Requirements: 5.1, 5.2, 5.3, 5.6_
   
-  - [ ]* 11.5 Write property test for campaign generation structure
+  - [ ]* 11.8 Write property test for campaign generation structure
     - **Property 7: Campaign Generation Structure**
     - **Validates: Requirements 5.2, 5.3**
   
-  - [ ]* 11.6 Write unit tests for campaign generation
+  - [ ]* 11.9 Write unit tests for campaign generation
     - Test with mocked Bedrock responses
-    - Test idempotency (duplicate requests)
     - Test hashtag generation
-    - Test optimal time calculation
+    - Test agent orchestration
     - Test error handling when Bedrock fails
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
@@ -328,15 +351,15 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
 
 - [ ] 13. Rate limiting and quota management
   - [ ] 13.1 Implement token bucket rate limiting
-    - Create check_rate_limit function with MongoDB-backed storage
+    - Create check_rate_limit function with DynamoDB-backed storage
     - Implement token bucket algorithm (100 tokens, refill 100/min)
     - Calculate refill based on elapsed time
-    - Update bucket atomically
+    - Update bucket atomically using DynamoDB conditional writes
     - Return allowed status and rate limit headers
     - _Requirements: 20.1, 20.2_
   
-  - [ ] 13.2 Create rate limiting middleware
-    - Apply to all /api/v1/ endpoints
+  - [ ] 13.2 Create rate limiting middleware for local dev API
+    - Apply to all /api/v1/ endpoints in FastAPI dev server
     - Extract user_id from JWT
     - Call check_rate_limit
     - Return 429 with retry-after header if exceeded
@@ -351,7 +374,7 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - Create check_and_increment_quota function
     - Check if quota_reset_date is today, reset if not
     - Check if campaigns_generated_today < daily_campaign_quota
-    - Increment counter if allowed
+    - Increment counter using DynamoDB atomic counter
     - Return quota status
     - _Requirements: 20.3, 20.4_
   
@@ -455,43 +478,34 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - Test error handling
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
 
-- [ ] 16. Worker service for campaign publishing
-  - [ ] 16.1 Implement worker message processing
-    - Create process_message method in WorkerService
+- [ ] 16. Worker Lambda for campaign publishing
+  - [ ] 16.1 Implement Publishing Worker Lambda handler
+    - Create Lambda handler triggered by SQS
     - Parse message body for campaign_id and scheduled_time
     - Check if scheduled_time <= current_time
-    - If not ready, extend message visibility and return
-    - Atomically update campaign status: scheduled → publishing
-    - If update fails (already processed), delete message and return
-    - Retrieve campaign from database
+    - If not ready, return (message will be retried)
+    - Atomically update campaign status: scheduled → publishing using DynamoDB conditional update
+    - If update fails (already processed), return success
+    - Retrieve campaign from DynamoDB
     - Call Instagram service to publish
-    - On success: Update status to "published", store post_id, delete message
+    - On success: Update status to "published", store post_id in DynamoDB
     - On failure: Increment publish_attempts
-    - If attempts >= 3: Update status to "failed", delete message
-    - If attempts < 3: Update status to "scheduled", extend visibility (30s)
+    - If attempts >= 3: Update status to "failed"
+    - If attempts < 3: Update status to "scheduled", raise exception for SQS retry
     - _Requirements: 6.3, 7.1, 7.5, 9.2, 9.3, 9.4, 18.2_
   
-  - [ ] 16.2 Implement worker polling loop
-    - Create poll_and_process method
-    - Receive up to 10 messages from SQS (long polling 20s)
-    - Process messages concurrently (max 5 concurrent)
-    - Use asyncio.gather for parallel processing
-    - Loop indefinitely
-    - _Requirements: 9.2, 9.6_
-  
-  - [ ] 16.3 Implement dead-letter queue handling
-    - Configure SQS dead-letter queue
-    - Move messages after 3 failed attempts
-    - Log failure reason, retry count, and payload
+  - [ ] 16.2 Configure SQS dead-letter queue
+    - Configure SQS dead-letter queue in infrastructure
+    - Set maxReceiveCount to 3
+    - Log failure reason, retry count, and payload to CloudWatch
     - _Requirements: 9.5, 21.1, 21.2, 21.3_
   
-  - [ ]* 16.4 Write integration tests for worker
+  - [ ]* 16.3 Write integration tests for worker Lambda
     - Test message processing with scheduled campaign
     - Test atomic status update
     - Test retry logic
     - Test dead-letter queue placement
-    - Test concurrent processing
-    - _Requirements: 6.3, 9.2, 9.3, 9.4, 9.5, 9.6_
+    - _Requirements: 6.3, 9.2, 9.3, 9.4, 9.5_
 
 - [ ] 17. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
@@ -508,7 +522,7 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
   
   - [ ] 18.2 Implement analytics aggregation
     - Create get_analytics_summary method in AnalyticsService
-    - Query analytics collection for user's campaigns in date range
+    - Query DynamoDB analytics table for user's campaigns in date range
     - Calculate totals: sum of likes, comments, reach, impressions
     - Calculate averages: mean engagement_rate
     - Calculate trends: compare to previous period
@@ -519,36 +533,45 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
   - [ ] 18.3 Implement analytics storage
     - Create store_analytics method
     - Associate metrics with campaign_id and timestamp
-    - Store in analytics collection
+    - Store in DynamoDB analytics table
     - _Requirements: 8.2_
   
   - [ ]* 18.4 Write property test for analytics association
     - **Property 11: Analytics Association**
     - **Validates: Requirements 8.2**
   
-  - [ ] 18.5 Implement analytics endpoints
+  - [ ] 18.5 Implement analytics endpoints for local dev API
     - GET /api/v1/analytics?start_date=&end_date=
     - Verify user authentication
     - Call analytics service to aggregate data
     - Return summary statistics
     - _Requirements: 8.3_
   
-  - [ ] 18.6 Implement periodic analytics fetching worker task
-    - Create fetch_analytics_for_published_campaigns task
-    - Query campaigns with status "published" and last_analytics_fetch > 24h ago
+  - [ ] 18.6 Implement Analytics Collector Lambda
+    - Create Lambda handler triggered by EventBridge (every 6 hours)
+    - Query DynamoDB for published campaigns with last_analytics_fetch > 24h ago
     - For each campaign, fetch insights from Instagram
-    - Store analytics in database
+    - Store analytics in DynamoDB
     - Update campaign.last_analytics_fetch timestamp
     - _Requirements: 8.1, 8.4_
   
-  - [ ]* 18.7 Write integration tests for analytics
+  - [ ] 18.7 Implement Performance Learning Lambda
+    - Create Lambda handler invoked by Analytics Collector
+    - Retrieve campaign metadata and metrics from DynamoDB
+    - Call Bedrock to reason over performance data
+    - Identify success patterns and insights
+    - Update DynamoDB Memory table with learned patterns
+    - Increase confidence scores with more data
+    - _Requirements: 8.1, 8.4_
+  
+  - [ ]* 18.8 Write integration tests for analytics
     - Test insights fetching with mocked Instagram API
     - Test analytics storage
     - Test analytics aggregation
     - Test analytics endpoint
     - _Requirements: 8.1, 8.2, 8.3, 8.6_
 
-- [ ] 19. Campaign management endpoints
+- [ ] 19. Campaign management endpoints for local dev API
   - [ ] 19.1 Create campaign schemas
     - CampaignGenerateRequest with product_id, tone, idempotency_key
     - CampaignScheduleRequest with scheduled_time validation
@@ -559,7 +582,7 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - POST /api/v1/campaigns/generate
     - Check daily quota with check_and_increment_quota
     - Validate input with Pydantic
-    - Call campaign service to generate campaign
+    - Invoke Agent Orchestrator Lambda
     - Return generated campaign
     - _Requirements: 5.1, 5.2, 5.3, 20.3_
   
@@ -592,7 +615,7 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - Define ExternalServiceError, InstagramPublishError, BedrockError, RekognitionError
     - _Requirements: 10.5, 14.1, 14.2_
   
-  - [ ] 20.2 Implement error handling middleware
+  - [ ] 20.2 Implement error handling middleware for local dev API
     - Create exception handlers for each error type
     - Map exceptions to HTTP status codes
     - Return standardized error responses
@@ -600,13 +623,13 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - Add retry-after headers for rate limit errors
     - _Requirements: 10.5, 14.1, 14.5_
   
-  - [ ] 20.3 Implement structured logging
+  - [ ] 20.3 Implement structured logging for Lambda functions
     - Configure logging with JSON formatter
     - Include timestamp, level, service, trace_id, message
-    - Log all API requests (method, path, status, duration)
+    - Log all Lambda invocations (function name, request_id, duration)
     - Log authentication attempts
     - Log external API calls
-    - Log queue message processing
+    - Log SQS message processing
     - Never log sensitive data (passwords, tokens, keys)
     - _Requirements: 11.6, 14.1, 14.2, 14.3, 14.4, 14.6, 22.1_
   
@@ -614,9 +637,8 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - **Property 18: Structured Logging Format**
     - **Validates: Requirements 22.1, 11.6**
   
-  - [ ] 20.5 Implement trace ID middleware
-    - Generate unique trace_id for each request
-    - Store in request.state
+  - [ ] 20.5 Implement trace ID for Lambda functions
+    - Use AWS request_id as trace_id
     - Propagate to all service calls
     - Include in all log entries
     - Include in error responses
@@ -696,18 +718,18 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - Test authorization bypass attempts
     - _Requirements: 11.3, 28.7_
 
-- [ ] 25. Health check endpoints
+- [ ] 25. Health check endpoints for local dev API
   - [ ] 25.1 Implement health check endpoints
     - GET /health/liveness - Always return 200 if service is running
-    - GET /health/readiness - Return 200 if database is connected, 503 otherwise
-    - Check database connectivity
+    - GET /health/readiness - Return 200 if DynamoDB is connected, 503 otherwise
+    - Check DynamoDB connectivity
     - Return status within 100ms
     - _Requirements: 17.3, 17.4, 22.3, 22.4_
   
   - [ ]* 25.2 Write tests for health checks
     - Test liveness endpoint
-    - Test readiness with database connected
-    - Test readiness with database disconnected
+    - Test readiness with DynamoDB connected
+    - Test readiness with DynamoDB disconnected
     - _Requirements: 17.3, 22.3, 22.4_
 
 - [ ] 26. Data export endpoint
@@ -806,71 +828,72 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
   - Ensure all tests pass, ask the user if questions arise.
 
 
-- [ ] 30. Docker and deployment configuration
-  - [ ] 30.1 Create Dockerfile for API service
-    - Use Python 3.11 base image
-    - Install dependencies from requirements.txt
-    - Copy application code
-    - Expose port 8000
-    - Set CMD to run uvicorn
+- [ ] 30. AWS Lambda deployment configuration
+  - [ ] 30.1 Create Lambda deployment package structure
+    - Create requirements.txt for Lambda layers (Boto3, Pydantic, PyJWT, Bcrypt, Cryptography)
+    - Create layer for shared dependencies
+    - Create deployment packages for each Lambda function
     - _Requirements: 13.1_
   
-  - [ ] 30.2 Create Dockerfile for worker service
-    - Use Python 3.11 base image
-    - Install dependencies from requirements.txt
-    - Copy application code
-    - Set CMD to run worker polling loop
-    - _Requirements: 13.1_
+  - [ ] 30.2 Create SAM or Serverless Framework template
+    - Define all Lambda functions (Orchestrator, Agents, Workers, Analytics)
+    - Define API Gateway integration
+    - Define DynamoDB tables with PK/SK structure
+    - Define S3 buckets
+    - Define SQS queues with DLQ
+    - Define EventBridge rules for scheduled tasks
+    - Define IAM roles with least-privilege permissions
+    - _Requirements: 13.1, 13.2_
   
-  - [ ] 30.3 Create docker-compose.yml for local development
-    - Define api-service container
-    - Define worker-service container
-    - Define MongoDB container (for local dev)
-    - Define environment variables
-    - Set up networking
-    - _Requirements: 13.1, 13.7_
-  
-  - [ ] 30.4 Create ECS task definitions
-    - Create task definition for API service
-    - Create task definition for worker service
-    - Configure CPU and memory limits
+  - [ ] 30.3 Configure Lambda function settings
+    - Set Python 3.11 runtime
+    - Configure memory and timeout per function
     - Configure environment variables
-    - Configure CloudWatch logging
-    - _Requirements: 13.2, 13.6_
+    - Configure VPC settings if needed
+    - Configure reserved concurrency for critical functions
+    - _Requirements: 13.2_
   
-  - [ ] 30.5 Create environment configuration files
+  - [ ] 30.4 Create environment configuration files
     - Create .env.example with all required variables
     - Document each variable
     - Create separate configs for dev, staging, prod
     - _Requirements: 15.1, 15.2, 15.6_
   
-  - [ ] 30.6 Configure CloudWatch logging
-    - Set up log groups for API service and worker service
+  - [ ] 30.5 Configure CloudWatch logging
+    - Set up log groups for each Lambda function
     - Configure log retention (30 days)
     - Set up log streams
     - _Requirements: 13.6, 14.1_
   
-  - [ ] 30.7 Configure CloudWatch alarms
-    - Create alarm for API error rate > 5%
-    - Create alarm for queue depth > 1000
-    - Create alarm for worker lag > 5 minutes
+  - [ ] 30.6 Configure CloudWatch alarms
+    - Create alarm for Lambda error rate > 5%
+    - Create alarm for SQS queue depth > 1000
+    - Create alarm for Lambda duration approaching timeout
     - Create alarm for publish failure rate > 10%
     - Configure SNS notifications
     - _Requirements: 22.6, 22.7_
+  
+  - [ ] 30.7 Create local development setup with FastAPI
+    - Create dev_api/main.py with FastAPI app
+    - Implement all API endpoints for local testing
+    - Configure to invoke Lambda functions locally or use direct service calls
+    - Create docker-compose.yml for local DynamoDB (DynamoDB Local)
+    - _Requirements: 13.7_
 
 - [ ] 31. Database indexes and optimization
-  - [ ] 31.1 Create MongoDB indexes
-    - users: unique index on email, sparse index on instagram_user_id
-    - products: index on user_id, compound index on (user_id, created_at), sparse index on deleted_at
-    - campaigns: index on user_id, compound indexes on (user_id, scheduled_time) and (user_id, status), index on scheduled_time, unique index on idempotency_key, sparse index on instagram_post_id
-    - analytics: index on campaign_id, compound index on (user_id, fetched_at)
-    - rate_limits: TTL index on expires_at
+  - [ ] 31.1 Create DynamoDB table definitions
+    - users table: PK=USER#{user_id}, unique email GSI, sparse instagram_user_id GSI
+    - products table: PK=USER#{user_id}, SK=PRODUCT#{product_id}, sparse deleted_at GSI
+    - campaigns table: PK=USER#{user_id}, SK=CAMPAIGN#{campaign_id}, GSI for status+scheduled_time queries, unique idempotency_key GSI, sparse instagram_post_id GSI
+    - analytics table: PK=CAMPAIGN#{campaign_id}, SK=ANALYTICS#{timestamp}, GSI for user_id+fetched_at queries
+    - memory table: PK=USER#{user_id}, SK=MEMORY#{memory_type}
+    - rate_limits table: PK=USER#{user_id}, SK=RATE_LIMIT#{resource}, TTL on expires_at
     - _Requirements: 26.2, 29.7_
   
-  - [ ] 31.2 Configure MongoDB connection pooling
-    - Set appropriate pool size limits
-    - Configure connection timeout
-    - Configure socket timeout
+  - [ ] 31.2 Configure DynamoDB capacity settings
+    - Set appropriate read/write capacity or use on-demand billing
+    - Configure auto-scaling if using provisioned capacity
+    - Configure point-in-time recovery
     - _Requirements: 29.5_
 
 - [ ] 32. Configuration validation and startup checks
@@ -882,21 +905,22 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - _Requirements: 15.3_
   
   - [ ] 32.2 Implement startup health checks
-    - Check database connectivity on startup
+    - Check DynamoDB connectivity on Lambda cold start
     - Check AWS service connectivity (S3, SQS, Secrets Manager)
-    - Log startup status
+    - Log startup status to CloudWatch
     - _Requirements: 17.3_
 
 - [ ] 33. Documentation
   - [ ] 33.1 Create comprehensive README.md
-    - System architecture explanation
-    - AI workflow (Bedrock + Rekognition flow)
+    - System architecture explanation (AWS serverless)
+    - AI workflow (multi-agent Lambda architecture with Bedrock)
+    - Campaign Intelligence Memory (DynamoDB-backed learning)
     - Instagram integration flow
     - Token lifecycle management
-    - Campaign generation pipeline
-    - Scheduling & worker logic
-    - MongoDB schema overview
-    - Deployment guide (Docker + ECS)
+    - Campaign generation pipeline (agent orchestration)
+    - Scheduling & Lambda worker logic
+    - DynamoDB schema overview (PK/SK patterns)
+    - Deployment guide (AWS SAM/Serverless Framework + Lambda)
     - Environment variables list
     - Security considerations
     - Future improvements
@@ -906,13 +930,13 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
   - [ ] 33.2 Create development_rules.md
     - Follow clean architecture principles
     - Use async IO wherever possible
-    - No business logic in route handlers
+    - No business logic in Lambda handlers
     - Use service layer
     - Environment variables only
     - No hardcoded secrets
     - Type hints everywhere
     - Clear docstrings
-    - Separate worker from API service
+    - Separate Lambda functions by responsibility
     - _Requirements: 10.1, 10.2, 10.6, 11.7_
   
   - [ ] 33.3 Create API documentation
@@ -923,9 +947,10 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - _Requirements: 27.4_
   
   - [ ] 33.4 Create architecture.md
-    - Document system architecture with diagrams
-    - Document request flow patterns
-    - Document data models
+    - Document serverless system architecture with diagrams
+    - Document Lambda invocation patterns
+    - Document DynamoDB data models and access patterns
+    - Document AI agent workflow
     - Document algorithms
     - _Requirements: 15.6_
 
@@ -935,9 +960,9 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
     - Login
     - Connect Instagram (mocked)
     - Upload product
-    - Generate campaign
+    - Generate campaign (invoke Orchestrator Lambda)
     - Schedule campaign
-    - Worker processes and publishes (mocked Instagram)
+    - Lambda worker processes and publishes (mocked Instagram)
     - Fetch analytics
     - _Requirements: 28.5_
   
@@ -965,19 +990,21 @@ This implementation plan breaks down the PostPilot AI platform into discrete, in
 - Checkpoints ensure incremental validation at key milestones
 - Property tests validate universal correctness properties with minimum 100 iterations
 - Unit tests validate specific examples and edge cases with mocked dependencies
-- Integration tests validate API endpoints with real database and mocked external services
+- Integration tests validate API endpoints with mocked external services and local DynamoDB
 - End-to-end tests validate complete user flows
 - All external services (Instagram, Bedrock, Rekognition, S3, SQS) should be mocked in tests
 - Use Hypothesis for property-based testing in Python
 - Use pytest with pytest-asyncio for async test support
 - Use httpx-mock or responses for mocking HTTP calls
 - Use moto for mocking AWS services
-- Follow clean architecture: routes → services → repositories → database
-- No business logic in route handlers
+- Follow clean architecture: Lambda handlers → services → repositories → DynamoDB
+- No business logic in Lambda handlers
 - All service methods should be async
 - Include comprehensive docstrings and type hints
 - Never log sensitive data (passwords, tokens, API keys)
 - Always validate user ownership before allowing resource access
 - Use environment variables for all configuration
-- Fail fast on startup if required config is missing
+- Fail fast on Lambda cold start if required config is missing
+- FastAPI is used ONLY for local development and testing, NOT for production deployment
+- Production deployment uses AWS Lambda + API Gateway
 
