@@ -11,11 +11,11 @@ DYNAMODB_MEMORY_TABLE=postpilot-memory
 DYNAMODB_RATE_LIMITS_TABLE=postpilot-rate-limits
 
 # S3 Configuration
-S3_BUCKET_NAME=postpilot-media
+AWS_S3_BUCKET_NAME=postpilot-media
 S3_REGION=us-east-1
 
 # SQS Configuration
-SQS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/your-account-id/postpilot-publishing-queue
+AWS_SQS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/your-account-id/postpilot-publishing-queue
 SQS_DLQ_URL=https://sqs.us-east-1.amazonaws.com/your-account-id/postpilot-dlq
 
 # AWS Secrets Manager
@@ -33,7 +33,7 @@ JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
 JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
 
 # Bedrock Configuration
-BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
+BEDROCK_MODEL_ID=anthropic.claude-3-sonnet-20240229-v1:0
 BEDROCK_REGION=us-east-1
 
 # Rate Limiting

@@ -243,3 +243,39 @@ class CampaignRepository(BaseRepository):
                     logger.error(f"Campaign not found: {campaign.campaign_id}")
                     raise ValueError(f"Campaign with ID {campaign.campaign_id} not found")
                 raise
+    
+    async def get_all_published_campaigns(self) -> List[Campaign]:
+        """
+        Get all published campaigns across all users.
+        
+        Used by Analytics Collector Lambda to fetch campaigns for analytics.
+        
+        Returns:
+            List of published Campaigns
+            
+        Note:
+            In production, this should use a GSI on status for efficient querying.
+            For now, we scan with filter (not optimal for large datasets).
+            
+        Requirements: 8.1, 8.4
+        """
+        async with self.db_manager.get_resource() as dynamodb:
+            table = await dynamodb.Table(self.table_name)
+            
+            try:
+                # Scan with filter for published campaigns
+                response = await table.scan(
+                    FilterExpression='#status = :status',
+                    ExpressionAttributeNames={'#status': 'status'},
+                    ExpressionAttributeValues={
+                        ':status': 'published'
+                    }
+                )
+                
+                campaigns = [Campaign.from_dynamodb_item(item) for item in response['Items']]
+                
+                logger.info(f"Retrieved {len(campaigns)} published campaigns")
+                return campaigns
+            except ClientError as e:
+                logger.error(f"Error getting published campaigns: {e}")
+                raise

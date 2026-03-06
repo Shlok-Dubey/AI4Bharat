@@ -167,7 +167,25 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: postpilot-dlq
-      MessageRetentionPeriod: 1209600
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  # CloudWatch Alarms for DLQ Monitoring
+  DeadLetterQueueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: postpilot-dlq-messages
+      AlarmDescription: Alert when messages enter the dead-letter queue
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300  # 5 minutes
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt DeadLetterQueue.QueueName
+      TreatMissingData: notBreaching
 
   # Lambda Functions
   AgentOrchestratorFunction:
@@ -274,8 +292,70 @@ Resources:
             TableName: !Ref CampaignsTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProductsTable
         - S3ReadPolicy:
             BucketName: !Ref MediaBucket
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: '*'
+        - Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+
+  PublishingWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/postpilot-publishing-worker
+      RetentionInDays: 30
+
+  AgentOrchestratorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/postpilot-agent-orchestrator
+      RetentionInDays: 30
+
+  BusinessProfilingLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/postpilot-business-profiling
+      RetentionInDays: 30
+
+  CampaignStrategyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/postpilot-campaign-strategy
+      RetentionInDays: 30
+
+  ContentGenerationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/postpilot-content-generation
+      RetentionInDays: 30
+
+  SchedulingIntelligenceLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/postpilot-scheduling-intelligence
+      RetentionInDays: 30
+
+  AnalyticsCollectorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/postpilot-analytics-collector
+      RetentionInDays: 30
+
+  PerformanceLearningLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/postpilot-performance-learning
+      RetentionInDays: 30
 
   AnalyticsCollectorFunction:
     Type: AWS::Serverless::Function
@@ -317,6 +397,107 @@ Resources:
                 - bedrock:InvokeModel
               Resource: '*'
 
+  # CloudWatch Alarms
+  LambdaErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: postpilot-lambda-error-rate
+      AlarmDescription: Alert when Lambda error rate exceeds 5%
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 0.05
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+      TreatMissingData: notBreaching
+
+  QueueDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: postpilot-queue-depth
+      AlarmDescription: Alert when SQS queue depth exceeds 1000 messages
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt PublishingQueue.QueueName
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+      TreatMissingData: notBreaching
+
+  PublishingWorkerDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: postpilot-worker-duration
+      AlarmDescription: Alert when worker Lambda duration approaches timeout
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 100000  # 100 seconds (timeout is 120)
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref PublishingWorkerFunction
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+      TreatMissingData: notBreaching
+
+  PublishFailureRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: postpilot-publish-failure-rate
+      AlarmDescription: Alert when campaign publish failure rate exceeds 10%
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 0.10
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref PublishingWorkerFunction
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+      TreatMissingData: notBreaching
+
+  # SNS Topic for Alarms
+  AlarmNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: postpilot-alarms
+      DisplayName: PostPilot AI Alarm Notifications
+
+  # Subscribe alarms to SNS
+  DeadLetterQueueAlarmAction:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: postpilot-dlq-messages-action
+      AlarmDescription: Alert when messages enter the dead-letter queue
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt DeadLetterQueue.QueueName
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+      TreatMissingData: notBreaching
+
 Outputs:
   UsersTableName:
     Description: DynamoDB Users Table Name
@@ -345,3 +526,7 @@ Outputs:
   PublishingQueueUrl:
     Description: SQS Publishing Queue URL
     Value: !Ref PublishingQueue
+  
+  AlarmNotificationTopicArn:
+    Description: SNS Topic ARN for Alarm Notifications
+    Value: !Ref AlarmNotificationTopic

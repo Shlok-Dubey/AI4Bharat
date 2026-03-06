@@ -5,7 +5,7 @@ This is NOT used in production - production uses AWS Lambda + API Gateway.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from dev_api.routes import auth
+from dev_api.routes import auth, instagram, products, campaigns, analytics
 
 app = FastAPI(
     title="PostPilot AI - Local Dev API",
@@ -24,6 +24,10 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router)
+app.include_router(instagram.router)
+app.include_router(products.router)
+app.include_router(campaigns.router)
+app.include_router(analytics.router)
 
 
 @app.get("/health/liveness")

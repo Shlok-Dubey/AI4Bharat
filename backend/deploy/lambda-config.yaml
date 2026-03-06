@@ -1,0 +1,93 @@
+# Lambda Function Configuration
+# This file documents the configuration for each Lambda function
+
+functions:
+  agent-orchestrator:
+    runtime: python3.11
+    memory: 1024  # MB - needs more memory for orchestrating multiple agents
+    timeout: 60   # seconds - allows time for multiple agent invocations
+    reserved_concurrency: 50  # limit concurrent executions
+    environment:
+      LOG_LEVEL: INFO
+      TRACE_ENABLED: "true"
+    
+  business-profiling:
+    runtime: python3.11
+    memory: 512   # MB
+    timeout: 30   # seconds - Bedrock calls can take time
+    reserved_concurrency: null  # no limit
+    environment:
+      LOG_LEVEL: INFO
+      BEDROCK_TIMEOUT: 15
+    
+  campaign-strategy:
+    runtime: python3.11
+    memory: 512   # MB
+    timeout: 30   # seconds
+    reserved_concurrency: null
+    environment:
+      LOG_LEVEL: INFO
+      BEDROCK_TIMEOUT: 15
+    
+  content-generation:
+    runtime: python3.11
+    memory: 512   # MB
+    timeout: 30   # seconds
+    reserved_concurrency: null
+    environment:
+      LOG_LEVEL: INFO
+      BEDROCK_TIMEOUT: 15
+    
+  scheduling-intelligence:
+    runtime: python3.11
+    memory: 256   # MB - lighter workload
+    timeout: 30   # seconds
+    reserved_concurrency: null
+    environment:
+      LOG_LEVEL: INFO
+      BEDROCK_TIMEOUT: 15
+    
+  publishing-worker:
+    runtime: python3.11
+    memory: 512   # MB
+    timeout: 120  # seconds - Instagram API can be slow
+    reserved_concurrency: 10  # limit concurrent publishes to Instagram
+    environment:
+      LOG_LEVEL: INFO
+      INSTAGRAM_TIMEOUT: 30
+      MAX_RETRIES: 3
+    
+  analytics-collector:
+    runtime: python3.11
+    memory: 512   # MB
+    timeout: 300  # seconds - processes multiple campaigns
+    reserved_concurrency: 1   # only one instance should run at a time
+    environment:
+      LOG_LEVEL: INFO
+      INSTAGRAM_TIMEOUT: 30
+      BATCH_SIZE: 50
+    
+  performance-learning:
+    runtime: python3.11
+    memory: 512   # MB
+    timeout: 60   # seconds
+    reserved_concurrency: null
+    environment:
+      LOG_LEVEL: INFO
+      BEDROCK_TIMEOUT: 15
+
+# VPC Configuration (optional - only if needed for private resources)
+# vpc:
+#   security_groups:
+#     - sg-xxxxxxxxx
+#   subnets:
+#     - subnet-xxxxxxxxx
+#     - subnet-yyyyyyyyy
+
+# Notes:
+# - All functions use Python 3.11 runtime
+# - Memory is allocated based on workload complexity
+# - Timeout is set based on expected execution time + buffer
+# - Reserved concurrency is used to control costs and rate limits
+# - Environment variables are set per function for specific needs
+# - VPC configuration is commented out (not needed for serverless architecture)
