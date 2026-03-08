@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Cache Cleared</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+</head>
+
+<body>
+    <h1>Browser Cache Cleared!</h1>
+    <p>Click the button below to go to the application:</p>
+    <button onclick="window.location.href='/'">Go to Application</button>
+
+    <script>
+        // Clear all storage
+        localStorage.clear();
+        sessionStorage.clear();
+
+        // Clear service workers
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function (registrations) {
+                for (let registration of registrations) {
+                    registration.unregister();
+                }
+            });
+        }
+
+        // Clear cache storage
+        if ('caches' in window) {
+            caches.keys().then(function (names) {
+                for (let name of names) {
+                    caches.delete(name);
+                }
+            });
+        }
+
+        console.log('All caches cleared!');
+    </script>
+</body>
+
+</html>

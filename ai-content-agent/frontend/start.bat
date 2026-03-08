@@ -1,0 +1,3 @@
+@echo off
+echo Starting AI Content Agent Frontend...
+npm run dev

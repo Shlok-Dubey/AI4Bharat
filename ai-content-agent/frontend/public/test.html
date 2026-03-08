@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>API Test</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+</head>
+
+<body>
+    <h1>API Connection Test</h1>
+    <div id="result"></div>
+
+    <script>
+        const resultDiv = document.getElementById('result');
+
+        // Test the health endpoint
+        fetch('http://localhost:8002/health')
+            .then(response => response.json())
+            .then(data => {
+                resultDiv.innerHTML = `
+                    <h2 style="color: green;">✅ SUCCESS!</h2>
+                    <p>Backend is running correctly on port 8002</p>
+                    <p>Status: ${data.status}</p>
+                    <p>Database: ${data.database}</p>
+                    <hr>
+                    <p><strong>The backend is working!</strong></p>
+                    <p>Now close this tab and:</p>
+                    <ol>
+                        <li>Close ALL browser tabs</li>
+                        <li>Close the browser completely</li>
+                        <li>Reopen browser</li>
+                        <li>Go to: <a href="http://localhost:5173">http://localhost:5173</a></li>
+                    </ol>
+                `;
+            })
+            .catch(error => {
+                resultDiv.innerHTML = `
+                    <h2 style="color: red;">❌ ERROR</h2>
+                    <p>Cannot connect to backend on port 8002</p>
+                    <p>Error: ${error.message}</p>
+                    <hr>
+                    <p>Make sure the backend is running:</p>
+                    <code>cd backend && venv\\Scripts\\activate && python -m uvicorn main:app --host 127.0.0.1 --port 8002</code>
+                `;
+            });
+    </script>
+</body>
+
+</html>
