@@ -6,18 +6,18 @@ This module provides real AI content generation using AWS Bedrock.
 
 import boto3
 import json
-import os
 from botocore.exceptions import ClientError
 from typing import Dict, Optional
+from config import settings
 
 
 def get_bedrock_client():
     """Get boto3 Bedrock Runtime client"""
     return boto3.client(
         'bedrock-runtime',
-        region_name=os.getenv('AWS_REGION', 'us-east-1'),
-        aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-        aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
+        region_name=settings.BEDROCK_REGION,
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
     )
 
 
@@ -90,8 +90,8 @@ Return ONLY valid JSON without any markdown formatting or code blocks."""
     }
     
     try:
-        # Invoke Claude model
-        model_id = os.getenv('BEDROCK_MODEL_ID', 'anthropic.claude-3-sonnet-20240229-v1:0')
+        # Invoke Claude model - use active model
+        model_id = settings.BEDROCK_MODEL_ID
         
         response = bedrock_client.invoke_model(
             modelId=model_id,
@@ -140,9 +140,9 @@ def test_bedrock_connection() -> bool:
         # Try to list models as a connection test
         boto3.client(
             'bedrock',
-            region_name=os.getenv('AWS_REGION', 'us-east-1'),
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
+            region_name=settings.BEDROCK_REGION,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
         ).list_foundation_models()
         return True
     except Exception as e:

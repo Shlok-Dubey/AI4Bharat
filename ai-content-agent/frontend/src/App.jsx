@@ -6,6 +6,7 @@ import CreateCampaign from './pages/CreateCampaign'
 import ReviewContent from './pages/ReviewContent'
 import CampaignPlan from './pages/CampaignPlan'
 import SchedulePreview from './pages/SchedulePreview'
+import ScheduledPosts from './pages/ScheduledPosts'
 import Analytics from './pages/Analytics'
 import OAuthSuccess from './pages/OAuthSuccess'
 import OAuthError from './pages/OAuthError'
@@ -22,6 +23,7 @@ function App() {
                 <Route path="/campaigns/:campaignId/review" element={<ReviewContent />} />
                 <Route path="/campaigns/:campaignId/plan" element={<CampaignPlan />} />
                 <Route path="/campaigns/:campaignId/schedule" element={<SchedulePreview />} />
+                <Route path="/campaigns/:campaignId/scheduled-posts" element={<ScheduledPosts />} />
                 <Route path="/campaigns/:campaignId/analytics" element={<Analytics />} />
                 <Route path="/oauth/success" element={<OAuthSuccess />} />
                 <Route path="/oauth/error" element={<OAuthError />} />

@@ -1,0 +1,463 @@
+AI CONTENT AGENT - COMPLETE SETUP GUIDE
+========================================
+
+TABLE OF CONTENTS
+-----------------
+1. Environment Configuration
+2. DynamoDB Setup
+3. S3 Media Storage
+4. EventBridge + Lambda Scheduling
+5. Instagram Token Refresh
+6. Analytics System
+7. Testing & Troubleshooting
+
+
+================================================================================
+1. ENVIRONMENT CONFIGURATION
+================================================================================
+
+Required Environment Variables (.env):
+--------------------------------------
+# JWT Configuration
+SECRET_KEY=your-secret-key-here
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# AWS Configuration
+AWS_ACCESS_KEY_ID=your-aws-access-key-id
+AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+AWS_REGION=us-east-1
+
+# DynamoDB Table Names
+DYNAMODB_TABLE_USERS=ai_content_users
+DYNAMODB_TABLE_OAUTH_ACCOUNTS=ai_content_oauth_accounts
+DYNAMODB_TABLE_CAMPAIGNS=ai_content_campaigns
+DYNAMODB_TABLE_CAMPAIGN_ASSETS=ai_content_campaign_assets
+DYNAMODB_TABLE_GENERATED_CONTENT=ai_content_generated_content
+DYNAMODB_TABLE_SCHEDULED_POSTS=ai_content_scheduled_posts
+DYNAMODB_TABLE_POST_ANALYTICS=ai_content_post_analytics
+
+# S3 Configuration
+S3_BUCKET_NAME=ai-content-agent-assets
+
+# AWS Bedrock Configuration
+BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
+BEDROCK_REGION=us-east-1
+
+# Instagram OAuth Configuration
+INSTAGRAM_APP_ID=your-instagram-app-id
+INSTAGRAM_APP_SECRET=your-instagram-app-secret
+META_APP_ID=your-instagram-app-id
+META_APP_SECRET=your-instagram-app-secret
+META_REDIRECT_URI=http://localhost:8000/auth/meta/callback
+
+# Frontend URL
+FRONTEND_URL=http://localhost:5173
+
+Test Configuration:
+-------------------
+python test_config.py
+
+
+================================================================================
+2. DYNAMODB SETUP
+================================================================================
+
+Initialize DynamoDB Tables:
+---------------------------
+cd backend
+python init_dynamodb.py
+
+This creates 7 tables with GSI indexes:
+- ai_content_users (email-index)
+- ai_content_oauth_accounts (user_id-index)
+- ai_content_campaigns (user_id-index)
+- ai_content_campaign_assets (campaign_id-index)
+- ai_content_generated_content (campaign_id-index)
+- ai_content_scheduled_posts (content_id-index)
+- ai_content_post_analytics (post_id-index)
+
+Verify Tables:
+--------------
+1. Go to AWS DynamoDB Console
+2. Check all 7 tables exist
+3. Verify GSI indexes are active
+
+Helper Functions Available:
+---------------------------
+Users:
+- create_user(name, email, hashed_password, **kwargs)
+- get_user(user_id)
+- get_user_by_email(email)
+- update_user(user_id, **kwargs)
+
+OAuth:
+- create_oauth_account(user_id, provider, provider_account_id, access_token, **kwargs)
+- get_oauth_account(oauth_id)
+- get_oauth_accounts_by_user(user_id)
+- get_oauth_account_by_provider(user_id, provider)
+- update_oauth_account(oauth_id, **kwargs)
+
+Campaigns:
+- create_campaign(user_id, name, **kwargs)
+- get_campaign(campaign_id)
+- get_campaigns_by_user(user_id)
+- update_campaign(campaign_id, **kwargs)
+- delete_campaign(campaign_id)
+
+Scheduled Posts:
+- create_scheduled_post(content_id, scheduled_for, **kwargs)
+- get_scheduled_post(post_id)
+- get_scheduled_posts_by_content(content_id)
+- update_scheduled_post(post_id, **kwargs)
+
+Analytics:
+- create_post_analytics(post_id, **kwargs)
+- get_post_analytics(post_id)
+- update_post_analytics(analytics_id, **kwargs)
+
+
+================================================================================
+3. S3 MEDIA STORAGE
+================================================================================
+
+Create S3 Bucket:
+-----------------
+1. AWS Console → S3 → Create bucket
+2. Name: ai-content-agent-assets
+3. Region: us-east-1
+4. Uncheck "Block all public access"
+5. Create bucket
+
+Configure Bucket Policy:
+------------------------
+Bucket → Permissions → Bucket Policy:
+
+{
+    "Version": "2012-10-17",
+    "Statement": [{
+        "Effect": "Allow",
+        "Principal": "*",
+        "Action": "s3:GetObject",
+        "Resource": "arn:aws:s3:::ai-content-agent-assets/*"
+    }]
+}
+
+Configure CORS:
+---------------
+Bucket → Permissions → CORS:
+
+[{
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["GET", "PUT", "POST"],
+    "AllowedOrigins": ["*"],
+    "ExposeHeaders": []
+}]
+
+Test S3 Upload:
+---------------
+python test_s3_upload.py
+
+Upload Flow:
+------------
+User uploads → Validate → Upload to S3 → Store S3 URL in DynamoDB → Use for Instagram
+
+File Validation:
+----------------
+Images: JPG, PNG (max 8MB)
+Videos: MP4 (max 100MB)
+
+
+================================================================================
+4. EVENTBRIDGE + LAMBDA SCHEDULING
+================================================================================
+
+Architecture:
+-------------
+FastAPI → DynamoDB → EventBridge Rule → Lambda → Instagram → DynamoDB
+
+Step 1: Create IAM Role
+------------------------
+1. IAM Console → Roles → Create role
+2. Trusted entity: Lambda
+3. Attach policies:
+   - AWSLambdaBasicExecutionRole
+   - Custom DynamoDB policy:
+
+{
+    "Version": "2012-10-17",
+    "Statement": [{
+        "Effect": "Allow",
+        "Action": [
+            "dynamodb:GetItem",
+            "dynamodb:Query",
+            "dynamodb:UpdateItem"
+        ],
+        "Resource": "arn:aws:dynamodb:*:*:table/ai_content_*"
+    }]
+}
+
+4. Name: lambda-instagram-post-handler
+5. Copy Role ARN
+
+Step 2: Deploy Lambda
+----------------------
+export AWS_LAMBDA_ROLE_ARN=arn:aws:iam::ACCOUNT:role/lambda-instagram-post-handler
+python deploy_lambda.py
+
+Step 3: Configure Environment
+------------------------------
+Add to .env:
+AWS_LAMBDA_POST_HANDLER_ARN=arn:aws:lambda:REGION:ACCOUNT:function:instagram-post-handler
+
+Step 4: Test Lambda
+-------------------
+1. Lambda Console → instagram-post-handler
+2. Create test event: {"post_id": "test-id"}
+3. Click "Test"
+4. Check CloudWatch logs
+
+Scheduling Flow:
+----------------
+1. User schedules post via API
+2. FastAPI creates DynamoDB record
+3. FastAPI creates EventBridge rule
+4. EventBridge triggers Lambda at scheduled time
+5. Lambda posts to Instagram
+6. Lambda updates DynamoDB status
+
+Monitoring:
+-----------
+CloudWatch Logs: /aws/lambda/instagram-post-handler
+DynamoDB: Check post status field
+EventBridge: View scheduled rules
+
+Cost Estimate:
+--------------
+~$0.001/month for 1000 posts (free tier covers most usage)
+
+
+================================================================================
+5. INSTAGRAM TOKEN REFRESH
+================================================================================
+
+Automatic Refresh:
+------------------
+✅ Happens automatically before posting
+✅ Checks if token expires in < 7 days
+✅ Refreshes token via Instagram API
+✅ Updates token in DynamoDB
+✅ No user action required
+
+API Endpoints:
+--------------
+Check Status:
+GET /auth/meta/instagram/token-status
+
+Manual Refresh:
+POST /auth/meta/instagram/refresh-token
+
+Background Job Setup:
+---------------------
+Run daily to refresh all expiring tokens:
+
+Windows Task Scheduler:
+1. Open Task Scheduler
+2. Create Basic Task
+3. Name: "Instagram Token Refresh"
+4. Trigger: Daily at 2:00 AM
+5. Action: Start a program
+6. Program: python
+7. Arguments: token_refresh_job.py
+8. Start in: C:\path\to\backend
+
+Linux/Mac Cron:
+crontab -e
+0 2 * * * cd /path/to/backend && python token_refresh_job.py
+
+Token Lifecycle:
+----------------
+1. User connects Instagram → Token issued (60 days)
+2. Token stored in DynamoDB with expiry
+3. Before posting → Check if expires in < 7 days
+4. If yes → Refresh token (extends 60 days)
+5. Background job → Refreshes all expiring tokens daily
+6. If refresh fails → Mark as needs_reauth
+
+Error States:
+-------------
+"needs_reauth" → User must reconnect Instagram
+"expired" → Token expired, reconnect required
+"invalid" → Token invalid, reconnect required
+
+
+================================================================================
+6. ANALYTICS SYSTEM
+================================================================================
+
+Architecture:
+-------------
+1. analytics_job.py - Fetches Instagram insights and stores in DynamoDB
+2. agents/analytics_agent.py - Reads analytics and generates summaries
+3. routes/analytics.py - API endpoints for accessing analytics
+
+Setup Automatic Scheduling:
+----------------------------
+Run setup script:
+> setup_analytics_cron.bat
+
+This creates Windows Task Scheduler jobs at 8 AM and 8 PM daily.
+
+Manual Execution:
+-----------------
+> python analytics_job.py
+
+Or trigger via API:
+POST /analytics/fetch
+
+API Endpoints:
+--------------
+1. Get Campaign Analytics:
+   GET /analytics/campaign/{campaign_id}
+   
+   Returns: impressions, reach, likes, comments, saves, shares, engagement_rate
+
+2. Get Performance Summary:
+   GET /analytics/campaign/{campaign_id}/summary
+   
+   Returns: Top posts, AI insights, recommendations
+
+3. Get Post Analytics:
+   GET /analytics/post/{post_id}
+   
+   Returns: Individual post metrics
+
+How It Works:
+-------------
+1. Post published via Lambda → status="posted" + platform_post_id
+2. analytics_job.py runs every 12 hours:
+   - Finds all posts with status="posted"
+   - Fetches Instagram insights
+   - Stores in DynamoDB post_analytics table
+3. Analytics Agent reads from DynamoDB:
+   - Individual post analytics
+   - Campaign aggregated analytics
+   - Performance summaries with insights
+4. Scheduler Agent uses historical analytics for optimal posting times
+
+Important Notes:
+----------------
+- Instagram insights available 24 hours after posting
+- Job skips posts without insights
+- Analytics cached for 5 minutes
+- Access tokens auto-refreshed if needed
+
+Troubleshooting:
+----------------
+If analytics not appearing:
+1. Check posts have status="posted" and platform_post_id
+2. Verify Instagram access token valid
+3. Wait 24 hours after posting
+4. Check analytics_job.py logs
+5. Manually run: python analytics_job.py
+
+
+================================================================================
+7. TESTING & TROUBLESHOOTING
+================================================================================
+
+Test Scripts:
+-------------
+python test_config.py          # Test environment configuration
+python test_aws_connection.py  # Test AWS credentials
+python test_s3_upload.py       # Test S3 upload
+python test_analytics.py       # Test analytics system
+python analytics_job.py        # Test analytics fetching
+
+Start Application:
+------------------
+cd backend
+python main.py
+
+Or use batch file:
+start.bat
+
+Health Check:
+-------------
+curl http://localhost:8000/health
+
+Common Issues:
+--------------
+
+1. "Access Denied" (S3):
+   - Check bucket policy allows public read
+   - Verify IAM permissions
+   - Ensure ACL is public-read
+
+2. "Lambda not triggered":
+   - Check EventBridge rule exists
+   - Verify Lambda ARN in rule target
+   - Check Lambda permissions
+   - Review EventBridge execution history
+
+3. "Token refresh failed":
+   - Check Instagram API accessible
+   - Verify token not expired
+   - Check network connectivity
+   - Review Instagram API status
+
+4. "Analytics not appearing":
+   - Check posts have status="posted"
+   - Verify Instagram access token valid
+   - Wait 24 hours after posting
+   - Check analytics_job.py logs
+
+5. "DynamoDB table not found":
+   - Run init_dynamodb.py
+   - Check table names in .env
+   - Verify AWS region correct
+
+Monitoring:
+-----------
+CloudWatch Logs: /aws/lambda/instagram-post-handler
+DynamoDB: Check post status and analytics
+EventBridge: View scheduled rules
+S3: Monitor bucket usage
+
+Cost Estimates:
+---------------
+DynamoDB: ~$3-5/month (7 tables, 5 RCU/WCU each)
+S3: ~$1.86/month (1000 images, 2MB avg)
+Lambda: ~$0.001/month (1000 posts)
+EventBridge: ~$0.001/month (1000 posts)
+Total: ~$5-7/month
+
+Security:
+---------
+✅ Tokens encrypted in DynamoDB
+✅ Lambda execution role with minimal permissions
+✅ S3 files publicly readable (required for Instagram)
+✅ OAuth tokens never logged
+✅ CloudWatch logs for audit trail
+
+Next Steps:
+-----------
+1. Configure environment variables
+2. Initialize DynamoDB tables
+3. Set up S3 bucket
+4. Deploy Lambda function
+5. Configure token refresh job
+6. Set up analytics scheduling
+7. Test all endpoints
+8. Monitor CloudWatch logs
+9. Review AWS costs
+
+Support:
+--------
+For issues, check:
+- CloudWatch logs
+- DynamoDB table data
+- EventBridge rules
+- S3 bucket policy
+- Environment variables
+- IAM permissions

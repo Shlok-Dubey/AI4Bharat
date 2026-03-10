@@ -4,24 +4,32 @@ import axios from '../api/axios'
 import '../styles/Dashboard.css'
 
 function CampaignPlan() {
+    console.log('🎯 CampaignPlan component mounted')
+
     const navigate = useNavigate()
     const { campaignId } = useParams()
     const [campaign, setCampaign] = useState(null)
     const [approvedContent, setApprovedContent] = useState([])
     const [loading, setLoading] = useState(true)
 
+    console.log('📋 CampaignPlan state - campaignId:', campaignId, 'loading:', loading, 'campaign:', !!campaign, 'approvedContent:', approvedContent.length)
+
     useEffect(() => {
         fetchCampaignData()
     }, [campaignId])
 
     const fetchCampaignData = async () => {
+        console.log('🚀 fetchCampaignData called for campaignId:', campaignId)
+
         const token = localStorage.getItem('token')
         if (!token) {
+            console.log('❌ No token found, redirecting to login')
             navigate('/login')
             return
         }
 
         try {
+            console.log('🔄 Fetching campaign details...')
             // Fetch campaign details
             const campaignResponse = await axios.get(
                 `/campaigns/${campaignId}`,
@@ -31,8 +39,10 @@ function CampaignPlan() {
                     }
                 }
             )
+            console.log('✅ Campaign response:', campaignResponse.data)
             setCampaign(campaignResponse.data)
 
+            console.log('🔄 Fetching approved content...')
             // Fetch approved content
             const contentResponse = await axios.get(
                 `/campaigns/${campaignId}/content?status_filter=approved`,
@@ -42,10 +52,22 @@ function CampaignPlan() {
                     }
                 }
             )
+            console.log('📦 Content response:', contentResponse.data)
+            console.log('📋 Content array:', contentResponse.data.content)
+            console.log('📊 Content count:', contentResponse.data.content?.length)
+
             setApprovedContent(contentResponse.data.content)
+            console.log('✅ Approved content set successfully')
         } catch (err) {
-            console.error('Error fetching campaign data:', err)
+            console.error('❌ Error fetching campaign data:', err)
+            console.error('Error details:', {
+                message: err.message,
+                response: err.response,
+                responseData: err.response?.data,
+                status: err.response?.status
+            })
         } finally {
+            console.log('🏁 Setting loading to false')
             setLoading(false)
         }
     }
@@ -53,7 +75,27 @@ function CampaignPlan() {
     if (loading) {
         return (
             <div className="dashboard-container">
-                <div className="loading">Loading campaign...</div>
+                <div className="loading">
+                    <div>Loading campaign...</div>
+                    <button
+                        onClick={() => {
+                            console.log('🔄 Retry button clicked')
+                            setLoading(true)
+                            fetchCampaignData()
+                        }}
+                        style={{
+                            marginTop: '20px',
+                            padding: '10px 20px',
+                            backgroundColor: '#007bff',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Retry if stuck
+                    </button>
+                </div>
             </div>
         )
     }

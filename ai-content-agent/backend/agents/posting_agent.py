@@ -1,22 +1,435 @@
 """
-Posting Agent
+Posting Agent - Production Grade
 
-This module handles automated posting to social media platforms.
-Currently uses placeholder logic for local development.
-
-For production deployment:
-- Integrate with Meta Graph API for Instagram/Facebook
-- Use Twitter API v2 for Twitter/X
-- Use LinkedIn API for LinkedIn
-- Implement retry logic and error handling
-- Add webhook handlers for post status updates
+Handles automated posting to Instagram with comprehensive error handling.
+Integrates with DynamoDB for status tracking and retry support.
 """
 
 from typing import Dict, Optional, Tuple
 from datetime import datetime
-import uuid
+import time
+import requests
+from requests.exceptions import Timeout, RequestException
+
+
+class InstagramPostingError(Exception):
+    """Base exception for Instagram posting errors"""
+    pass
+
+
+class TokenExpiredError(InstagramPostingError):
+    """Raised when access token is expired or invalid"""
+    pass
+
+
+class InvalidMediaError(InstagramPostingError):
+    """Raised when media URL is invalid or inaccessible"""
+    pass
+
+
+class RateLimitError(InstagramPostingError):
+    """Raised when API rate limit is exceeded"""
+    pass
+
+
+class PublishingError(InstagramPostingError):
+    """Raised when publishing fails"""
+    pass
+
 
 class PostingAgent:
+    """
+    Production-grade posting agent for Instagram.
+    
+    Features:
+    - Comprehensive error handling
+    - Token validation and refresh
+    - DynamoDB status tracking
+    - Retry support
+    - Rate limit handling
+    """
+    
+    def __init__(self):
+        """Initialize the posting agent."""
+        self.api_version = 'v19.0'
+        self.base_url = f'https://graph.facebook.com/{self.api_version}'
+        self.timeout = 30
+        self.container_check_retries = 10
+        self.container_check_delay = 2
+    
+    def post_to_instagram(
+        self,
+        access_token: str,
+        instagram_account_id: str,
+        caption: str,
+        image_url: str,
+        hashtags: Optional[str] = None,
+        user_id: Optional[str] = None,
+        post_id: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Post content to Instagram using Meta Graph API.
+        
+        Flow: media_url → create container → publish container → return post_id
+        
+        Args:
+            access_token: Instagram access token
+            instagram_account_id: Instagram Business Account ID
+            caption: Post caption
+            image_url: Public S3 URL of image
+            hashtags: Optional hashtags
+            user_id: User ID for token refresh
+            post_id: Scheduled post ID for status updates
+            
+        Returns:
+            Tuple of (success, instagram_post_id, error_message)
+        """
+        print(f"🚀 Starting Instagram post flow...")
+        
+        # Validate inputs
+        if not access_token or not instagram_account_id:
+            error = "Missing access token or account ID"
+            self._update_post_status(post_id, 'failed', error_message=error)
+            return False, None, error
+        
+        if not image_url:
+            error = "Image URL is required"
+            self._update_post_status(post_id, 'failed', error_message=error)
+            return False, None, error
+        
+        # Check and refresh token if needed
+        if user_id:
+            token_valid, token_error = self._validate_and_refresh_token(user_id)
+            if not token_valid:
+                self._update_post_status(post_id, 'failed', error_message=token_error)
+                return False, None, token_error
+            
+            # Get refreshed token
+            access_token = self._get_refreshed_token(user_id) or access_token
+        
+        try:
+            # Step 1: Create media container
+            container_id = self._create_media_container(
+                access_token,
+                instagram_account_id,
+                image_url,
+                caption,
+                hashtags
+            )
+            
+            # Step 2: Wait for container to be ready
+            self._wait_for_container(access_token, container_id)
+            
+            # Step 3: Publish container
+            instagram_post_id = self._publish_container(
+                access_token,
+                instagram_account_id,
+                container_id
+            )
+            
+            # Step 4: Update status to posted
+            self._update_post_status(
+                post_id,
+                'posted',
+                instagram_post_id=instagram_post_id,
+                posted_at=datetime.utcnow().isoformat()
+            )
+            
+            print(f"✅ Successfully posted! Instagram ID: {instagram_post_id}")
+            return True, instagram_post_id, None
+            
+        except TokenExpiredError as e:
+            error = str(e)
+            print(f"❌ Token error: {error}")
+            self._update_post_status(post_id, 'failed', error_message=error)
+            self._mark_token_for_reauth(user_id)
+            return False, None, error
+            
+        except InvalidMediaError as e:
+            error = str(e)
+            print(f"❌ Media error: {error}")
+            self._update_post_status(post_id, 'failed', error_message=error)
+            return False, None, error
+            
+        except RateLimitError as e:
+            error = str(e)
+            print(f"❌ Rate limit error: {error}")
+            self._update_post_status(post_id, 'failed', error_message=error)
+            return False, None, error
+            
+        except PublishingError as e:
+            error = str(e)
+            print(f"❌ Publishing error: {error}")
+            self._update_post_status(post_id, 'failed', error_message=error)
+            return False, None, error
+            
+        except Timeout:
+            error = "Request timeout - Instagram API took too long"
+            print(f"❌ {error}")
+            self._update_post_status(post_id, 'failed', error_message=error)
+            return False, None, error
+            
+        except RequestException as e:
+            error = f"Network error: {str(e)}"
+            print(f"❌ {error}")
+            self._update_post_status(post_id, 'failed', error_message=error)
+            return False, None, error
+            
+        except Exception as e:
+            error = f"Unexpected error: {str(e)}"
+            print(f"❌ {error}")
+            import traceback
+            traceback.print_exc()
+            self._update_post_status(post_id, 'failed', error_message=error)
+            return False, None, error
+    
+    def _create_media_container(
+        self,
+        access_token: str,
+        instagram_account_id: str,
+        image_url: str,
+        caption: str,
+        hashtags: Optional[str]
+    ) -> str:
+        """
+        Create Instagram media container.
+        
+        Returns:
+            Container ID
+            
+        Raises:
+            TokenExpiredError: If token is invalid
+            InvalidMediaError: If media URL is invalid
+            RateLimitError: If rate limit exceeded
+            PublishingError: If creation fails
+        """
+        print(f"📸 Creating media container...")
+        
+        # Prepare caption
+        full_caption = f"{caption}\n\n{hashtags}" if hashtags else caption
+        
+        url = f"{self.base_url}/{instagram_account_id}/media"
+        params = {
+            "image_url": image_url,
+            "caption": full_caption,
+            "access_token": access_token
+        }
+        
+        try:
+            response = requests.post(url, params=params, timeout=self.timeout)
+            
+            # Handle errors
+            if response.status_code == 400:
+                error_data = response.json().get('error', {})
+                error_msg = error_data.get('message', response.text)
+                
+                # Check for specific errors
+                if 'token' in error_msg.lower() or 'oauth' in error_msg.lower():
+                    raise TokenExpiredError(f"Invalid access token: {error_msg}")
+                elif 'url' in error_msg.lower() or 'media' in error_msg.lower():
+                    raise InvalidMediaError(f"Invalid media URL: {error_msg}")
+                else:
+                    raise PublishingError(f"Container creation failed: {error_msg}")
+            
+            elif response.status_code == 429:
+                raise RateLimitError("Instagram API rate limit exceeded")
+            
+            elif response.status_code != 200:
+                raise PublishingError(f"Container creation failed: {response.text}")
+            
+            # Extract container ID
+            container_id = response.json().get("id")
+            if not container_id:
+                raise PublishingError("No container ID in response")
+            
+            print(f"✅ Container created: {container_id}")
+            return container_id
+            
+        except (TokenExpiredError, InvalidMediaError, RateLimitError, PublishingError):
+            raise
+        except RequestException as e:
+            raise PublishingError(f"Network error creating container: {str(e)}")
+    
+    def _wait_for_container(self, access_token: str, container_id: str):
+        """
+        Wait for container to be ready for publishing.
+        
+        Raises:
+            PublishingError: If container fails or times out
+        """
+        print(f"⏳ Waiting for container to be ready...")
+        
+        url = f"{self.base_url}/{container_id}"
+        params = {
+            "fields": "status_code",
+            "access_token": access_token
+        }
+        
+        for attempt in range(self.container_check_retries):
+            try:
+                response = requests.get(url, params=params, timeout=self.timeout)
+                
+                if response.status_code != 200:
+                    raise PublishingError(f"Failed to check container status: {response.text}")
+                
+                status_code = response.json().get("status_code")
+                
+                if status_code == "FINISHED":
+                    print(f"✅ Container ready")
+                    return
+                elif status_code == "ERROR":
+                    raise PublishingError("Container processing failed")
+                elif status_code == "IN_PROGRESS":
+                    print(f"⏳ Processing... ({attempt + 1}/{self.container_check_retries})")
+                    time.sleep(self.container_check_delay)
+                else:
+                    print(f"⚠️  Unknown status: {status_code}")
+                    time.sleep(self.container_check_delay)
+                    
+            except RequestException as e:
+                if attempt == self.container_check_retries - 1:
+                    raise PublishingError(f"Failed to check container status: {str(e)}")
+                time.sleep(self.container_check_delay)
+        
+        raise PublishingError("Container processing timeout")
+    
+    def _publish_container(
+        self,
+        access_token: str,
+        instagram_account_id: str,
+        container_id: str
+    ) -> str:
+        """
+        Publish media container to Instagram.
+        
+        Returns:
+            Instagram post ID
+            
+        Raises:
+            PublishingError: If publishing fails
+        """
+        print(f"🚀 Publishing container...")
+        
+        url = f"{self.base_url}/{instagram_account_id}/media_publish"
+        params = {
+            "creation_id": container_id,
+            "access_token": access_token
+        }
+        
+        try:
+            response = requests.post(url, params=params, timeout=self.timeout)
+            
+            if response.status_code != 200:
+                raise PublishingError(f"Publishing failed: {response.text}")
+            
+            instagram_post_id = response.json().get("id")
+            if not instagram_post_id:
+                raise PublishingError("No post ID in response")
+            
+            print(f"✅ Published! Post ID: {instagram_post_id}")
+            return instagram_post_id
+            
+        except RequestException as e:
+            raise PublishingError(f"Network error publishing: {str(e)}")
+    
+    def _validate_and_refresh_token(self, user_id: str) -> Tuple[bool, Optional[str]]:
+        """Validate token and refresh if needed"""
+        try:
+            from utils.instagram_token_refresh import refresh_instagram_token, check_token_validity
+            import dynamodb_client as db
+            
+            oauth_account = db.get_oauth_account_by_provider(user_id, 'meta')
+            if not oauth_account:
+                return False, "Instagram account not connected"
+            
+            # Check validity
+            is_valid, error_msg = check_token_validity(oauth_account)
+            if not is_valid:
+                return False, error_msg
+            
+            # Try to refresh
+            refresh_success, refresh_error = refresh_instagram_token(user_id)
+            if not refresh_success:
+                return False, f"Token refresh failed: {refresh_error}"
+            
+            return True, None
+            
+        except Exception as e:
+            return False, f"Token validation error: {str(e)}"
+    
+    def _get_refreshed_token(self, user_id: str) -> Optional[str]:
+        """Get refreshed access token"""
+        try:
+            import dynamodb_client as db
+            oauth_account = db.get_oauth_account_by_provider(user_id, 'meta')
+            return oauth_account.get('access_token') if oauth_account else None
+        except:
+            return None
+    
+    def _mark_token_for_reauth(self, user_id: str):
+        """Mark token as needing re-authentication"""
+        if not user_id:
+            return
+        
+        try:
+            import dynamodb_client as db
+            oauth_account = db.get_oauth_account_by_provider(user_id, 'meta')
+            if oauth_account:
+                db.update_oauth_account(
+                    oauth_account['oauth_id'],
+                    scope='needs_reauth'
+                )
+        except Exception as e:
+            print(f"⚠️  Failed to mark token for reauth: {e}")
+    
+    def _update_post_status(
+        self,
+        post_id: Optional[str],
+        status: str,
+        instagram_post_id: Optional[str] = None,
+        posted_at: Optional[str] = None,
+        error_message: Optional[str] = None
+    ):
+        """Update post status in DynamoDB"""
+        if not post_id:
+            return
+        
+        try:
+            import dynamodb_client as db
+            
+            update_data = {'status': status}
+            
+            if instagram_post_id:
+                update_data['platform_post_id'] = instagram_post_id
+            
+            if posted_at:
+                update_data['published_at'] = posted_at
+            
+            if error_message:
+                update_data['error_message'] = error_message
+                # Increment retry count
+                post = db.get_scheduled_post(post_id)
+                if post:
+                    update_data['retry_count'] = post.get('retry_count', 0) + 1
+            
+            db.update_scheduled_post(post_id, **update_data)
+            print(f"✅ Updated post status: {status}")
+            
+        except Exception as e:
+            print(f"⚠️  Failed to update post status: {e}")
+
+
+# Singleton instance
+_posting_agent = None
+
+
+def get_posting_agent() -> PostingAgent:
+    """Get or create the posting agent instance"""
+    global _posting_agent
+    if _posting_agent is None:
+        _posting_agent = PostingAgent()
+    return _posting_agent
+
     """
     AI agent for posting content to social media platforms.
     
@@ -46,10 +459,13 @@ class PostingAgent:
         instagram_account_id: str,
         caption: str,
         image_url: Optional[str] = None,
-        hashtags: Optional[str] = None
+        hashtags: Optional[str] = None,
+        user_id: Optional[str] = None
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Post content to Instagram using Meta Graph API.
+        
+        Automatically checks token validity and refreshes if needed.
         
         Args:
             access_token: User's Instagram access token
@@ -57,17 +473,46 @@ class PostingAgent:
             caption: Post caption text
             image_url: URL of image to post (must be publicly accessible)
             hashtags: Hashtags to include
+            user_id: User ID (for token refresh)
             
         Returns:
             Tuple of (success, platform_post_id, error_message)
         """
         import requests
+        from utils.instagram_token_refresh import refresh_instagram_token, check_token_validity
+        import dynamodb_client as db
         
         if not access_token or not instagram_account_id:
             return False, None, "Missing access token or account ID"
         
         if not image_url:
             return False, None, "Image URL is required for Instagram posts"
+        
+        # Check token validity and refresh if needed
+        if user_id:
+            oauth_account = db.get_oauth_account_by_provider(user_id, 'meta')
+            
+            if oauth_account:
+                # Check if token is valid
+                is_valid, error_msg = check_token_validity(oauth_account)
+                
+                if not is_valid:
+                    print(f"⚠️  Token invalid: {error_msg}")
+                    return False, None, error_msg
+                
+                # Try to refresh token if expiring soon
+                print(f"🔄 Checking if token needs refresh...")
+                refresh_success, refresh_error = refresh_instagram_token(user_id)
+                
+                if not refresh_success:
+                    print(f"⚠️  Token refresh failed: {refresh_error}")
+                    return False, None, f"Token refresh failed: {refresh_error}"
+                
+                # Get updated token after refresh
+                oauth_account = db.get_oauth_account_by_provider(user_id, 'meta')
+                if oauth_account:
+                    access_token = oauth_account['access_token']
+                    print(f"✅ Using refreshed token")
         
         try:
             # Combine caption and hashtags
@@ -87,6 +532,19 @@ class PostingAgent:
             if container_response.status_code != 200:
                 error_msg = f"Failed to create container: {container_response.text}"
                 print(f"❌ {error_msg}")
+                
+                # Check if it's a token error
+                if 'OAuthException' in error_msg or 'access token' in error_msg.lower():
+                    # Mark token as needing re-auth
+                    if user_id:
+                        oauth_account = db.get_oauth_account_by_provider(user_id, 'meta')
+                        if oauth_account:
+                            db.update_oauth_account(
+                                oauth_account['oauth_id'],
+                                scope='needs_reauth'
+                            )
+                    return False, None, "Instagram access token is invalid. Please reconnect your account."
+                
                 return False, None, error_msg
             
             container_id = container_response.json().get("id")
@@ -143,385 +601,14 @@ class PostingAgent:
             return False, None, f"Network error: {str(e)}"
         except Exception as e:
             return False, None, f"Unexpected error: {str(e)}"
-    
-    def post_to_facebook(
-        self,
-        access_token: str,
-        page_id: str,
-        message: str,
-        image_url: Optional[str] = None
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """
-        Post content to Facebook Page.
-        
-        Args:
-            access_token: Page access token
-            page_id: Facebook Page ID
-            message: Post message
-            image_url: Optional image URL
-            
-        Returns:
-            Tuple of (success, post_id, error_message)
-            
-        For production with Meta Graph API:
-        
-        # Post with photo
-        url = f"https://graph.facebook.com/v19.0/{page_id}/photos"
-        params = {
-            "url": image_url,
-            "caption": message,
-            "access_token": access_token
-        }
-        
-        # Or post text only
-        url = f"https://graph.facebook.com/v19.0/{page_id}/feed"
-        params = {
-            "message": message,
-            "access_token": access_token
-        }
-        
-        response = requests.post(url, params=params)
-        
-        if response.status_code == 200:
-            post_id = response.json().get("id")
-            return True, post_id, None
-        else:
-            return False, None, response.text
-        """
-        # Placeholder
-        mock_post_id = f"facebook_{uuid.uuid4().hex[:12]}"
-        return True, mock_post_id, None
-    
-    def post_to_twitter(
-        self,
-        access_token: str,
-        access_token_secret: str,
-        tweet_text: str,
-        media_ids: Optional[list] = None
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """
-        Post tweet to Twitter/X.
-        
-        Args:
-            access_token: OAuth access token
-            access_token_secret: OAuth access token secret
-            tweet_text: Tweet text (max 280 characters)
-            media_ids: List of uploaded media IDs
-            
-        Returns:
-            Tuple of (success, tweet_id, error_message)
-            
-        For production with Twitter API v2:
-        
-        import requests
-        from requests_oauthlib import OAuth1
-        
-        # Create OAuth1 session
-        auth = OAuth1(
-            client_key=TWITTER_API_KEY,
-            client_secret=TWITTER_API_SECRET,
-            resource_owner_key=access_token,
-            resource_owner_secret=access_token_secret
-        )
-        
-        # Upload media first (if any)
-        if media_ids is None and image_url:
-            media_upload_url = "https://upload.twitter.com/1.1/media/upload.json"
-            # Download image and upload
-            # ... media upload logic ...
-            media_ids = [uploaded_media_id]
-        
-        # Create tweet
-        url = "https://api.twitter.com/2/tweets"
-        payload = {
-            "text": tweet_text
-        }
-        
-        if media_ids:
-            payload["media"] = {"media_ids": media_ids}
-        
-        response = requests.post(url, json=payload, auth=auth)
-        
-        if response.status_code == 201:
-            tweet_id = response.json()["data"]["id"]
-            return True, tweet_id, None
-        else:
-            return False, None, response.text
-        
-        Rate Limits:
-        - 300 tweets per 3 hours
-        - 50 tweets per hour (recommended)
-        """
-        # Placeholder
-        mock_tweet_id = f"twitter_{uuid.uuid4().hex[:12]}"
-        return True, mock_tweet_id, None
-    
-    def post_to_linkedin(
-        self,
-        access_token: str,
-        person_urn: str,
-        text: str,
-        image_url: Optional[str] = None
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """
-        Post content to LinkedIn.
-        
-        Args:
-            access_token: LinkedIn access token
-            person_urn: LinkedIn person URN
-            text: Post text
-            image_url: Optional image URL
-            
-        Returns:
-            Tuple of (success, post_id, error_message)
-            
-        For production with LinkedIn API:
-        
-        import requests
-        
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-            "X-Restli-Protocol-Version": "2.0.0"
-        }
-        
-        # Upload image first (if any)
-        if image_url:
-            # Register upload
-            register_url = "https://api.linkedin.com/v2/assets?action=registerUpload"
-            register_payload = {
-                "registerUploadRequest": {
-                    "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
-                    "owner": person_urn,
-                    "serviceRelationships": [{
-                        "relationshipType": "OWNER",
-                        "identifier": "urn:li:userGeneratedContent"
-                    }]
-                }
-            }
-            
-            register_response = requests.post(
-                register_url,
-                json=register_payload,
-                headers=headers
-            )
-            
-            asset_urn = register_response.json()["value"]["asset"]
-            upload_url = register_response.json()["value"]["uploadMechanism"]["..."]["uploadUrl"]
-            
-            # Upload image
-            # ... upload logic ...
-        
-        # Create post
-        url = "https://api.linkedin.com/v2/ugcPosts"
-        payload = {
-            "author": person_urn,
-            "lifecycleState": "PUBLISHED",
-            "specificContent": {
-                "com.linkedin.ugc.ShareContent": {
-                    "shareCommentary": {
-                        "text": text
-                    },
-                    "shareMediaCategory": "NONE"  # or "IMAGE" if image
-                }
-            },
-            "visibility": {
-                "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
-            }
-        }
-        
-        if image_url and asset_urn:
-            payload["specificContent"]["com.linkedin.ugc.ShareContent"]["shareMediaCategory"] = "IMAGE"
-            payload["specificContent"]["com.linkedin.ugc.ShareContent"]["media"] = [{
-                "status": "READY",
-                "media": asset_urn
-            }]
-        
-        response = requests.post(url, json=payload, headers=headers)
-        
-        if response.status_code == 201:
-            post_id = response.headers.get("X-RestLi-Id")
-            return True, post_id, None
-        else:
-            return False, None, response.text
-        """
-        # Placeholder
-        mock_post_id = f"linkedin_{uuid.uuid4().hex[:12]}"
-        return True, mock_post_id, None
-    
-    def update_post_status(
-        self,
-        db_session,
-        scheduled_post_id: uuid.UUID,
-        status: str,
-        platform_post_id: Optional[str] = None,
-        error_message: Optional[str] = None
-    ):
-        """
-        Update scheduled post status in database.
-        
-        Args:
-            db_session: SQLAlchemy database session
-            scheduled_post_id: UUID of scheduled post
-            status: New status (published, failed, cancelled)
-            platform_post_id: ID from social media platform
-            error_message: Error message if failed
-            
-        Status values:
-        - pending: Waiting to be posted
-        - published: Successfully posted
-        - failed: Posting failed
-        - cancelled: Manually cancelled
-        
-        For production:
-        - Add to scheduled_posts table
-        - Track retry attempts
-        - Store platform response
-        - Update published_at timestamp
-        """
-        from models.content import ScheduledPost
-        
-        scheduled_post = db_session.query(ScheduledPost).filter(
-            ScheduledPost.id == scheduled_post_id
-        ).first()
-        
-        if scheduled_post:
-            scheduled_post.status = status
-            
-            if platform_post_id:
-                scheduled_post.platform_post_id = platform_post_id
-                scheduled_post.published_at = datetime.utcnow()
-            
-            if error_message:
-                scheduled_post.error_message = error_message
-                scheduled_post.retry_count += 1
-            
-            db_session.commit()
-    
-    def post_scheduled_content(
-        self,
-        db_session,
-        scheduled_post_id: uuid.UUID,
-        access_token: str,
-        account_id: str
-    ) -> Tuple[bool, Optional[str]]:
-        """
-        Post a scheduled content piece.
-        
-        This is the main function called by the scheduler to post content.
-        
-        Args:
-            db_session: Database session
-            scheduled_post_id: UUID of scheduled post
-            access_token: Platform access token
-            account_id: Platform account ID
-            
-        Returns:
-            Tuple of (success, error_message)
-            
-        Workflow:
-        1. Fetch scheduled post from database
-        2. Get content details
-        3. Determine platform
-        4. Call appropriate posting function
-        5. Update post status in database
-        6. Return result
-        
-        For production:
-        - Implement as background task (Celery, RQ)
-        - Add to posting queue
-        - Handle rate limits
-        - Implement retry logic
-        - Send notifications on success/failure
-        """
-        from models.content import ScheduledPost, GeneratedContent
-        
-        # Fetch scheduled post
-        scheduled_post = db_session.query(ScheduledPost).filter(
-            ScheduledPost.id == scheduled_post_id
-        ).first()
-        
-        if not scheduled_post:
-            return False, "Scheduled post not found"
-        
-        # Get content
-        content = scheduled_post.content
-        
-        if not content:
-            return False, "Content not found"
-        
-        # Determine platform and post
-        platform = content.platform
-        caption = content.content_text
-        hashtags = content.hashtags
-        
-        try:
-            if platform == "instagram":
-                success, post_id, error = self.post_to_instagram(
-                    access_token=access_token,
-                    instagram_account_id=account_id,
-                    caption=caption,
-                    hashtags=hashtags
-                )
-            elif platform == "facebook":
-                success, post_id, error = self.post_to_facebook(
-                    access_token=access_token,
-                    page_id=account_id,
-                    message=f"{caption}\n\n{hashtags}" if hashtags else caption
-                )
-            elif platform == "twitter":
-                success, post_id, error = self.post_to_twitter(
-                    access_token=access_token,
-                    access_token_secret="",  # Would need to store this
-                    tweet_text=f"{caption}\n\n{hashtags}" if hashtags else caption
-                )
-            elif platform == "linkedin":
-                success, post_id, error = self.post_to_linkedin(
-                    access_token=access_token,
-                    person_urn=account_id,
-                    text=f"{caption}\n\n{hashtags}" if hashtags else caption
-                )
-            else:
-                return False, f"Unsupported platform: {platform}"
-            
-            # Update status
-            if success:
-                self.update_post_status(
-                    db_session=db_session,
-                    scheduled_post_id=scheduled_post_id,
-                    status="published",
-                    platform_post_id=post_id
-                )
-                return True, None
-            else:
-                self.update_post_status(
-                    db_session=db_session,
-                    scheduled_post_id=scheduled_post_id,
-                    status="failed",
-                    error_message=error
-                )
-                return False, error
-                
-        except Exception as e:
-            self.update_post_status(
-                db_session=db_session,
-                scheduled_post_id=scheduled_post_id,
-                status="failed",
-                error_message=str(e)
-            )
-            return False, str(e)
 
 
 # Singleton instance
 _posting_agent = None
 
+
 def get_posting_agent() -> PostingAgent:
-    """
-    Get or create the posting agent instance.
-    
-    Returns:
-        PostingAgent instance
-    """
+    """Get or create the posting agent instance"""
     global _posting_agent
     if _posting_agent is None:
         _posting_agent = PostingAgent()

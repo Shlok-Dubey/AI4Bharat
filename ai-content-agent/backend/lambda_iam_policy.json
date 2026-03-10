@@ -1,0 +1,34 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "DynamoDBAccess",
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:GetItem",
+                "dynamodb:Query",
+                "dynamodb:UpdateItem"
+            ],
+            "Resource": [
+                "arn:aws:dynamodb:*:*:table/ai_content_scheduled_posts",
+                "arn:aws:dynamodb:*:*:table/ai_content_scheduled_posts/index/*",
+                "arn:aws:dynamodb:*:*:table/ai_content_generated_content",
+                "arn:aws:dynamodb:*:*:table/ai_content_campaigns",
+                "arn:aws:dynamodb:*:*:table/ai_content_oauth_accounts",
+                "arn:aws:dynamodb:*:*:table/ai_content_oauth_accounts/index/*",
+                "arn:aws:dynamodb:*:*:table/ai_content_campaign_assets",
+                "arn:aws:dynamodb:*:*:table/ai_content_campaign_assets/index/*"
+            ]
+        },
+        {
+            "Sid": "CloudWatchLogs",
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+            ],
+            "Resource": "arn:aws:logs:*:*:*"
+        }
+    ]
+}

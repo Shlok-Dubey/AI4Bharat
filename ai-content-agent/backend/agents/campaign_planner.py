@@ -13,6 +13,7 @@ import json
 # Import AWS Bedrock client
 try:
     from utils.bedrock_client import get_bedrock_client
+    from config import settings
     BEDROCK_AVAILABLE = True
 except Exception as e:
     print(f"Bedrock not available for planner: {e}")
@@ -172,7 +173,7 @@ No explanation, just the array."""
         
         try:
             response = bedrock_client.invoke_model(
-                modelId=os.getenv('BEDROCK_MODEL_ID', 'anthropic.claude-3-sonnet-20240229-v1:0'),
+                modelId=settings.BEDROCK_MODEL_ID,
                 body=json.dumps(request_body)
             )
             

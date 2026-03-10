@@ -1,22 +1,9 @@
 """
-SQLAlchemy models for the AI Content Agent platform.
+Models package for AI Content Agent.
 
-For AWS DynamoDB deployment:
-- Replace these models with PynamoDB models
-- Each model should inherit from pynamodb.models.Model
-- Use DynamoDB-specific attributes (UnicodeAttribute, UTCDateTimeAttribute, etc.)
+Note: This application uses DynamoDB for data storage.
+All database operations are handled through dynamodb_client.py
+SQLAlchemy models have been removed.
 """
 
-from models.user import User, OAuthAccount
-from models.campaign import Campaign, CampaignAsset
-from models.content import GeneratedContent, ScheduledPost, PostAnalytics
-
-__all__ = [
-    "User",
-    "OAuthAccount",
-    "Campaign",
-    "CampaignAsset",
-    "GeneratedContent",
-    "ScheduledPost",
-    "PostAnalytics"
-]
+__all__ = []

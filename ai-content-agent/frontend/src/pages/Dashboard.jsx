@@ -62,6 +62,51 @@ function Dashboard() {
     }
   }
 
+  // Calculate statistics from campaigns
+  const calculateStats = () => {
+    let totalPosts = 0
+    let totalScheduled = 0
+    let totalPublished = 0
+
+    campaigns.forEach(campaign => {
+      totalPosts += campaign.total_content || 0
+      totalScheduled += campaign.scheduled_posts || 0
+      totalPublished += campaign.published_posts || 0
+    })
+
+    return { totalPosts, totalScheduled, totalPublished }
+  }
+
+  const stats = calculateStats()
+
+  // Check completion status for getting started checklist
+  const hasCreatedCampaign = campaigns.length > 0
+  const hasGeneratedContent = campaigns.some(c => (c.total_content || 0) > 0)
+  const hasScheduledPost = campaigns.some(c => (c.scheduled_posts || 0) > 0)
+
+  const handleDeleteCampaign = async (campaignId, campaignName) => {
+    if (!window.confirm(`Are you sure you want to delete "${campaignName}"? This action cannot be undone.`)) {
+      return
+    }
+
+    const token = localStorage.getItem('token')
+    try {
+      await axios.delete(`/campaigns/${campaignId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      })
+
+      // Refresh campaigns list
+      fetchCampaigns(token)
+      setSuccessMessage('Campaign deleted successfully!')
+      setTimeout(() => setSuccessMessage(''), 3000)
+    } catch (err) {
+      console.error('Error deleting campaign:', err)
+      alert('Failed to delete campaign. Please try again.')
+    }
+  }
+
   const handleConnectionStatusChange = () => {
     const token = localStorage.getItem('token')
     if (token) {
@@ -170,11 +215,11 @@ function Dashboard() {
                 <div className="stat-label">Campaigns</div>
               </div>
               <div className="stat-item">
-                <div className="stat-value">0</div>
-                <div className="stat-label">Posts</div>
+                <div className="stat-value">{stats.totalPosts}</div>
+                <div className="stat-label">Content</div>
               </div>
               <div className="stat-item">
-                <div className="stat-value">0</div>
+                <div className="stat-value">{stats.totalScheduled}</div>
                 <div className="stat-label">Scheduled</div>
               </div>
             </div>
@@ -191,16 +236,16 @@ function Dashboard() {
                 <span className="checkmark">{isInstagramConnected ? '✓' : '○'}</span>
                 Connect Instagram Business Account
               </li>
-              <li>
-                <span className="checkmark">○</span>
+              <li className={hasCreatedCampaign ? 'completed' : ''}>
+                <span className="checkmark">{hasCreatedCampaign ? '✓' : '○'}</span>
                 Create your first campaign
               </li>
-              <li>
-                <span className="checkmark">○</span>
+              <li className={hasGeneratedContent ? 'completed' : ''}>
+                <span className="checkmark">{hasGeneratedContent ? '✓' : '○'}</span>
                 Generate AI content
               </li>
-              <li>
-                <span className="checkmark">○</span>
+              <li className={hasScheduledPost ? 'completed' : ''}>
+                <span className="checkmark">{hasScheduledPost ? '✓' : '○'}</span>
                 Schedule your first post
               </li>
             </ul>
@@ -214,13 +259,13 @@ function Dashboard() {
               {campaigns.map((campaign) => (
                 <div key={campaign.id} className="campaign-card">
                   <div className="campaign-header">
-                    <h3>{campaign.campaign_name}</h3>
+                    <h3>{campaign.name || campaign.campaign_name}</h3>
                     <span className={`status-badge status-${campaign.status}`}>
                       {campaign.status}
                     </span>
                   </div>
                   <p className="campaign-description">
-                    {campaign.product_name} - {campaign.campaign_days} days
+                    {campaign.campaign_settings?.product_name || 'No product'} - {campaign.campaign_settings?.campaign_days || 0} days
                   </p>
                   <div className="campaign-stats">
                     <div className="campaign-stat">
@@ -250,12 +295,29 @@ function Dashboard() {
                     >
                       View Plan
                     </button>
+                    {(campaign.scheduled_posts || 0) > 0 && (
+                      <button
+                        onClick={() => navigate(`/campaigns/${campaign.id}/scheduled-posts`)}
+                        className="btn-secondary"
+                        style={{ padding: '8px 16px', fontSize: '14px' }}
+                      >
+                        Scheduled Posts
+                      </button>
+                    )}
                     <button
                       onClick={() => navigate(`/campaigns/${campaign.id}/analytics`)}
                       className="btn-secondary"
                       style={{ padding: '8px 16px', fontSize: '14px' }}
                     >
                       Analytics
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCampaign(campaign.id, campaign.name || campaign.campaign_name)}
+                      className="btn-danger"
+                      style={{ padding: '8px 16px', fontSize: '14px', marginLeft: '8px' }}
+                      title="Delete campaign"
+                    >
+                      Delete
                     </button>
                   </div>
                 </div>

@@ -6,6 +6,25 @@
     min-height: 100vh;
 }
 
+.demo-banner {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 1rem 2rem;
+    border-radius: 12px;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.demo-notice {
+    text-align: center;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.demo-notice strong {
+    font-weight: 600;
+}
+
 .analytics-header {
     background: white;
     padding: 2rem;

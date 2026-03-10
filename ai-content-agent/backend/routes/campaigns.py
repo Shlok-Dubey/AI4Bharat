@@ -6,15 +6,10 @@ Campaigns are associated with authenticated users via JWT tokens.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile
-from sqlalchemy.orm import Session
-from sqlalchemy import func
 from typing import List
 from datetime import datetime, timedelta
 import uuid
 
-from database_sqlite import get_db
-from models.user import User
-from models.campaign import Campaign
 from dependencies.auth import get_current_user
 from schemas.campaign import (
     CampaignCreateRequest,
@@ -34,8 +29,7 @@ router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
 @router.post("", response_model=CampaignDetailResponse, status_code=status.HTTP_201_CREATED)
 def create_campaign(
     campaign_data: CampaignCreateRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_user)
 ):
     """
     Create a new campaign.
@@ -46,7 +40,6 @@ def create_campaign(
     Args:
         campaign_data: Campaign creation data
         current_user: Authenticated user from JWT token
-        db: Database session
         
     Returns:
         Created campaign details
@@ -56,6 +49,9 @@ def create_campaign(
         - start_date and end_date are calculated based on campaign_days
         - campaign_settings stores product info for AI generation later
     """
+    import dynamodb_client as dynamodb
+    from datetime import datetime, timedelta
+    
     # Calculate campaign dates
     start_date = datetime.utcnow()
     end_date = start_date + timedelta(days=campaign_data.campaign_days)
@@ -67,9 +63,9 @@ def create_campaign(
         "campaign_days": campaign_data.campaign_days
     }
     
-    # Create campaign
-    new_campaign = Campaign(
-        user_id=current_user.id,
+    # Create campaign in DynamoDB
+    new_campaign = dynamodb.create_campaign(
+        user_id=current_user['user_id'],
         name=campaign_data.campaign_name,
         description=f"Campaign for {campaign_data.product_name}",
         status="draft",
@@ -78,23 +74,19 @@ def create_campaign(
         end_date=end_date
     )
     
-    db.add(new_campaign)
-    db.commit()
-    db.refresh(new_campaign)
-    
     # Build detailed response
     return CampaignDetailResponse(
-        id=new_campaign.id,
-        user_id=new_campaign.user_id,
+        id=new_campaign['campaign_id'],
+        user_id=new_campaign['user_id'],
         campaign_name=campaign_data.campaign_name,
         product_name=campaign_data.product_name,
         product_description=campaign_data.product_description,
         campaign_days=campaign_data.campaign_days,
-        status=new_campaign.status,
-        start_date=new_campaign.start_date,
-        end_date=new_campaign.end_date,
-        created_at=new_campaign.created_at,
-        updated_at=new_campaign.updated_at,
+        status=new_campaign['status'],
+        start_date=new_campaign['start_date'],
+        end_date=new_campaign['end_date'],
+        created_at=new_campaign['created_at'],
+        updated_at=new_campaign['updated_at'],
         total_content=0,
         scheduled_posts=0,
         published_posts=0
@@ -102,8 +94,7 @@ def create_campaign(
 
 @router.get("", response_model=CampaignListResponse)
 def get_campaigns(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
     skip: int = 0,
     limit: int = 100
 ):
@@ -115,35 +106,57 @@ def get_campaigns(
     
     Args:
         current_user: Authenticated user from JWT token
-        db: Database session
         skip: Number of records to skip (for pagination)
         limit: Maximum number of records to return
         
     Returns:
         List of campaigns with total count
     """
-    # Get total count
-    total = db.query(func.count(Campaign.id)).filter(
-        Campaign.user_id == current_user.id
-    ).scalar()
+    import dynamodb_client as dynamodb
     
-    # Get campaigns
-    campaigns = db.query(Campaign).filter(
-        Campaign.user_id == current_user.id
-    ).order_by(
-        Campaign.created_at.desc()
-    ).offset(skip).limit(limit).all()
+    # Get all campaigns for user
+    all_campaigns = dynamodb.get_campaigns_by_user(current_user['user_id'])
+    
+    # Sort by created_at descending
+    all_campaigns.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    
+    # Apply pagination
+    total = len(all_campaigns)
+    paginated_campaigns = all_campaigns[skip:skip + limit]
+    
+    # Build response
+    campaign_responses = []
+    for campaign in paginated_campaigns:
+        settings = campaign.get('campaign_settings', {})
+        
+        # Parse datetime
+        created_at = datetime.fromisoformat(campaign['created_at']) if isinstance(campaign['created_at'], str) else campaign['created_at']
+        updated_at = datetime.fromisoformat(campaign['updated_at']) if isinstance(campaign['updated_at'], str) else campaign['updated_at']
+        start_date = datetime.fromisoformat(campaign['start_date']) if isinstance(campaign.get('start_date'), str) else campaign.get('start_date')
+        end_date = datetime.fromisoformat(campaign['end_date']) if isinstance(campaign.get('end_date'), str) else campaign.get('end_date')
+        
+        campaign_responses.append(CampaignResponse(
+            id=campaign['campaign_id'],
+            user_id=campaign['user_id'],
+            name=campaign['name'],
+            description=campaign.get('description', ''),
+            status=campaign['status'],
+            campaign_settings=settings,
+            start_date=start_date,
+            end_date=end_date,
+            created_at=created_at,
+            updated_at=updated_at
+        ))
     
     return CampaignListResponse(
-        campaigns=[CampaignResponse.model_validate(c) for c in campaigns],
+        campaigns=campaign_responses,
         total=total
     )
 
 @router.get("/{campaign_id}", response_model=CampaignDetailResponse)
 def get_campaign(
     campaign_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_user)
 ):
     """
     Get a specific campaign by ID.
@@ -154,7 +167,6 @@ def get_campaign(
     Args:
         campaign_id: UUID of the campaign
         current_user: Authenticated user from JWT token
-        db: Database session
         
     Returns:
         Detailed campaign information
@@ -162,11 +174,10 @@ def get_campaign(
     Raises:
         HTTPException: If campaign not found or user doesn't own it
     """
+    import dynamodb_client as dynamodb
+    
     # Get campaign
-    campaign = db.query(Campaign).filter(
-        Campaign.id == campaign_id,
-        Campaign.user_id == current_user.id
-    ).first()
+    campaign = dynamodb.get_campaign(str(campaign_id))
     
     if not campaign:
         raise HTTPException(
@@ -174,30 +185,42 @@ def get_campaign(
             detail="Campaign not found"
         )
     
+    if campaign.get('user_id') != current_user['user_id']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this campaign"
+        )
+    
     # Extract campaign details from settings
-    settings = campaign.campaign_settings or {}
+    settings = campaign.get('campaign_settings', {})
     product_name = settings.get("product_name", "")
     product_description = settings.get("product_description", "")
     campaign_days = settings.get("campaign_days", 0)
     
-    # Count related content (to be implemented)
-    # For now, return 0 for all counts
-    total_content = 0
-    scheduled_posts = 0
-    published_posts = 0
+    # Count related content
+    all_content = dynamodb.get_generated_content_by_campaign(str(campaign_id))
+    total_content = len(all_content)
+    scheduled_posts = len([c for c in all_content if c.get('status') == 'scheduled'])
+    published_posts = len([c for c in all_content if c.get('status') == 'published'])
+    
+    # Parse datetime
+    created_at = datetime.fromisoformat(campaign['created_at']) if isinstance(campaign['created_at'], str) else campaign['created_at']
+    updated_at = datetime.fromisoformat(campaign['updated_at']) if isinstance(campaign['updated_at'], str) else campaign['updated_at']
+    start_date = datetime.fromisoformat(campaign['start_date']) if isinstance(campaign.get('start_date'), str) else campaign.get('start_date')
+    end_date = datetime.fromisoformat(campaign['end_date']) if isinstance(campaign.get('end_date'), str) else campaign.get('end_date')
     
     return CampaignDetailResponse(
-        id=campaign.id,
-        user_id=campaign.user_id,
-        campaign_name=campaign.name,
+        id=campaign['campaign_id'],
+        user_id=campaign['user_id'],
+        campaign_name=campaign['name'],
         product_name=product_name,
         product_description=product_description,
         campaign_days=campaign_days,
-        status=campaign.status,
-        start_date=campaign.start_date,
-        end_date=campaign.end_date,
-        created_at=campaign.created_at,
-        updated_at=campaign.updated_at,
+        status=campaign['status'],
+        start_date=start_date,
+        end_date=end_date,
+        created_at=created_at,
+        updated_at=updated_at,
         total_content=total_content,
         scheduled_posts=scheduled_posts,
         published_posts=published_posts
@@ -207,8 +230,7 @@ def get_campaign(
 def update_campaign(
     campaign_id: uuid.UUID,
     campaign_data: CampaignUpdateRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_user)
 ):
     """
     Update a campaign.
@@ -220,7 +242,6 @@ def update_campaign(
         campaign_id: UUID of the campaign
         campaign_data: Updated campaign data
         current_user: Authenticated user from JWT token
-        db: Database session
         
     Returns:
         Updated campaign details
@@ -228,11 +249,10 @@ def update_campaign(
     Raises:
         HTTPException: If campaign not found or user doesn't own it
     """
+    import dynamodb_client as dynamodb
+    
     # Get campaign
-    campaign = db.query(Campaign).filter(
-        Campaign.id == campaign_id,
-        Campaign.user_id == current_user.id
-    ).first()
+    campaign = dynamodb.get_campaign(str(campaign_id))
     
     if not campaign:
         raise HTTPException(
@@ -240,11 +260,18 @@ def update_campaign(
             detail="Campaign not found"
         )
     
-    # Update campaign fields
-    settings = campaign.campaign_settings or {}
+    if campaign.get('user_id') != current_user['user_id']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this campaign"
+        )
+    
+    # Prepare update data
+    update_data = {}
+    settings = campaign.get('campaign_settings', {})
     
     if campaign_data.campaign_name is not None:
-        campaign.name = campaign_data.campaign_name
+        update_data['name'] = campaign_data.campaign_name
     
     if campaign_data.product_name is not None:
         settings["product_name"] = campaign_data.product_name
@@ -255,31 +282,37 @@ def update_campaign(
     if campaign_data.campaign_days is not None:
         settings["campaign_days"] = campaign_data.campaign_days
         # Recalculate end date
-        if campaign.start_date:
-            campaign.end_date = campaign.start_date + timedelta(days=campaign_data.campaign_days)
+        start_date = datetime.fromisoformat(campaign['start_date']) if isinstance(campaign.get('start_date'), str) else campaign.get('start_date')
+        if start_date:
+            update_data['end_date'] = start_date + timedelta(days=campaign_data.campaign_days)
     
     if campaign_data.status is not None:
-        campaign.status = campaign_data.status
+        update_data['status'] = campaign_data.status
     
-    campaign.campaign_settings = settings
-    campaign.updated_at = datetime.utcnow()
+    update_data['campaign_settings'] = settings
     
-    db.commit()
-    db.refresh(campaign)
+    # Update campaign in DynamoDB
+    updated_campaign = dynamodb.update_campaign(str(campaign_id), **update_data)
+    
+    # Parse datetime
+    created_at = datetime.fromisoformat(updated_campaign['created_at']) if isinstance(updated_campaign['created_at'], str) else updated_campaign['created_at']
+    updated_at = datetime.fromisoformat(updated_campaign['updated_at']) if isinstance(updated_campaign['updated_at'], str) else updated_campaign['updated_at']
+    start_date = datetime.fromisoformat(updated_campaign['start_date']) if isinstance(updated_campaign.get('start_date'), str) else updated_campaign.get('start_date')
+    end_date = datetime.fromisoformat(updated_campaign['end_date']) if isinstance(updated_campaign.get('end_date'), str) else updated_campaign.get('end_date')
     
     # Build response
     return CampaignDetailResponse(
-        id=campaign.id,
-        user_id=campaign.user_id,
-        campaign_name=campaign.name,
+        id=updated_campaign['campaign_id'],
+        user_id=updated_campaign['user_id'],
+        campaign_name=updated_campaign['name'],
         product_name=settings.get("product_name", ""),
         product_description=settings.get("product_description", ""),
         campaign_days=settings.get("campaign_days", 0),
-        status=campaign.status,
-        start_date=campaign.start_date,
-        end_date=campaign.end_date,
-        created_at=campaign.created_at,
-        updated_at=campaign.updated_at,
+        status=updated_campaign['status'],
+        start_date=start_date,
+        end_date=end_date,
+        created_at=created_at,
+        updated_at=updated_at,
         total_content=0,
         scheduled_posts=0,
         published_posts=0
@@ -288,8 +321,7 @@ def update_campaign(
 @router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_campaign(
     campaign_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_user)
 ):
     """
     Delete a campaign.
@@ -300,7 +332,6 @@ def delete_campaign(
     Args:
         campaign_id: UUID of the campaign
         current_user: Authenticated user from JWT token
-        db: Database session
         
     Raises:
         HTTPException: If campaign not found or user doesn't own it
@@ -308,11 +339,10 @@ def delete_campaign(
     Note:
         This will cascade delete all related content, assets, and posts.
     """
+    import dynamodb_client as dynamodb
+    
     # Get campaign
-    campaign = db.query(Campaign).filter(
-        Campaign.id == campaign_id,
-        Campaign.user_id == current_user.id
-    ).first()
+    campaign = dynamodb.get_campaign(str(campaign_id))
     
     if not campaign:
         raise HTTPException(
@@ -320,8 +350,14 @@ def delete_campaign(
             detail="Campaign not found"
         )
     
-    db.delete(campaign)
-    db.commit()
+    if campaign.get('user_id') != current_user['user_id']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this campaign"
+        )
+    
+    # Delete campaign from DynamoDB
+    dynamodb.delete_campaign(str(campaign_id))
     
     return None
 
@@ -330,52 +366,36 @@ def delete_campaign(
 async def upload_campaign_assets(
     campaign_id: uuid.UUID,
     files: list[UploadFile],
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_user)
 ):
     """
-    Upload assets (images/videos) for a campaign.
+    Upload assets (images/videos) for a campaign to AWS S3.
     
-    This endpoint accepts multiple file uploads and stores them locally.
-    For production deployment, files should be uploaded to AWS S3.
+    This endpoint accepts multiple file uploads and stores them in S3.
+    The S3 URLs are stored in DynamoDB and used for Instagram posting.
     
     Args:
         campaign_id: UUID of the campaign
         files: List of uploaded files
         current_user: Authenticated user from JWT token
-        db: Database session
         
     Returns:
-        List of uploaded asset details
+        List of uploaded asset details with S3 URLs
         
     Raises:
         HTTPException: If campaign not found, file type invalid, or upload fails
         
     Note:
-        - Supports images: JPEG, PNG, GIF, WebP
-        - Supports videos: MP4, MPEG, QuickTime, AVI
-        - Max file size: 100MB per file
-        - Files stored in: uploads/campaign_assets/{campaign_id}/
-        
-    For AWS S3 deployment:
-        - Replace save_file_locally with upload_to_s3
-        - Store S3 URLs in file_path field
-        - Add S3 bucket configuration
-        - Implement presigned URLs for private access
+        - Supports images: JPEG, PNG (for Instagram)
+        - Supports videos: MP4
+        - Max file size: Images 8MB, Videos 100MB
+        - Files stored in S3 with public-read ACL for Instagram API
     """
-    from models.campaign import CampaignAsset
-    from utils.file_upload import (
-        validate_file_type,
-        validate_file_size,
-        save_file_locally,
-        get_file_size
-    )
+    from utils.aws_s3 import upload_media_to_s3, validate_media_file
+    import dynamodb_client as dynamodb
     
     # Verify campaign exists and user owns it
-    campaign = db.query(Campaign).filter(
-        Campaign.id == campaign_id,
-        Campaign.user_id == current_user.id
-    ).first()
+    campaign = dynamodb.get_campaign(str(campaign_id))
     
     if not campaign:
         raise HTTPException(
@@ -383,64 +403,86 @@ async def upload_campaign_assets(
             detail="Campaign not found"
         )
     
+    if campaign.get('user_id') != current_user['user_id']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this campaign"
+        )
+    
     uploaded_assets = []
     
     for file in files:
         try:
-            # Validate file type
-            asset_type = validate_file_type(file)
+            # Read file size
+            file.file.seek(0, 2)  # Seek to end
+            file_size = file.file.tell()
+            file.file.seek(0)  # Reset to beginning
             
-            # Validate file size
-            if not validate_file_size(file):
+            # Validate file for Instagram requirements
+            is_valid, error_msg = validate_media_file(file.filename, file_size)
+            if not is_valid:
                 raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"File {file.filename} exceeds maximum size of 100MB"
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=error_msg
                 )
             
-            # Get file size
-            file_size = get_file_size(file)
+            # Determine asset type
+            file_extension = file.filename.lower().split('.')[-1]
+            if file_extension in ['jpg', 'jpeg', 'png']:
+                asset_type = 'image'
+            elif file_extension == 'mp4':
+                asset_type = 'video'
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unsupported file type: {file_extension}"
+                )
             
-            # Save file locally
-            # For production: Replace with upload_to_s3(file, str(campaign_id))
-            file_path, unique_filename = await save_file_locally(file, str(campaign_id))
+            # Upload to S3
+            s3_url = upload_media_to_s3(file.file, file.filename, str(campaign_id))
             
-            # Create asset record
-            asset = CampaignAsset(
-                campaign_id=campaign_id,
+            # Create asset record in DynamoDB with S3 URL
+            asset = dynamodb.create_campaign_asset(
+                campaign_id=str(campaign_id),
                 asset_type=asset_type,
-                file_name=unique_filename,
-                file_path=file_path,
+                file_name=file.filename,
+                file_path=s3_url,  # Store S3 URL
                 file_size=file_size,
                 mime_type=file.content_type
             )
             
-            db.add(asset)
-            uploaded_assets.append(asset)
+            # Parse datetime from ISO string
+            from datetime import datetime
+            created_at = datetime.fromisoformat(asset['created_at']) if isinstance(asset['created_at'], str) else asset['created_at']
             
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
+            uploaded_assets.append(AssetUploadResponse(
+                id=asset['asset_id'],
+                campaign_id=campaign_id,
+                asset_type=asset_type,
+                file_name=file.filename,
+                file_path=s3_url,
+                file_size=file_size,
+                mime_type=file.content_type,
+                created_at=created_at
+            ))
+            
+        except HTTPException:
+            raise
         except Exception as e:
+            import traceback
+            print(f"❌ Error uploading {file.filename}:")
+            print(traceback.format_exc())
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to upload {file.filename}: {str(e)}"
             )
     
-    db.commit()
-    
-    # Refresh all assets to get IDs
-    for asset in uploaded_assets:
-        db.refresh(asset)
-    
-    return [AssetUploadResponse.model_validate(asset) for asset in uploaded_assets]
+    return uploaded_assets
 
 @router.get("/{campaign_id}/assets", response_model=AssetListResponse)
 def get_campaign_assets(
     campaign_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_user)
 ):
     """
     Get all assets for a campaign.
@@ -448,7 +490,6 @@ def get_campaign_assets(
     Args:
         campaign_id: UUID of the campaign
         current_user: Authenticated user from JWT token
-        db: Database session
         
     Returns:
         List of campaign assets
@@ -456,13 +497,10 @@ def get_campaign_assets(
     Raises:
         HTTPException: If campaign not found
     """
-    from models.campaign import CampaignAsset
+    import dynamodb_client as dynamodb
     
     # Verify campaign exists and user owns it
-    campaign = db.query(Campaign).filter(
-        Campaign.id == campaign_id,
-        Campaign.user_id == current_user.id
-    ).first()
+    campaign = dynamodb.get_campaign(str(campaign_id))
     
     if not campaign:
         raise HTTPException(
@@ -470,22 +508,41 @@ def get_campaign_assets(
             detail="Campaign not found"
         )
     
+    if campaign.get('user_id') != current_user['user_id']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this campaign"
+        )
+    
     # Get assets
-    assets = db.query(CampaignAsset).filter(
-        CampaignAsset.campaign_id == campaign_id
-    ).order_by(CampaignAsset.created_at.desc()).all()
+    assets = dynamodb.get_campaign_assets(str(campaign_id))
+    
+    # Build response
+    asset_responses = []
+    for asset in assets:
+        created_at = datetime.fromisoformat(asset['created_at']) if isinstance(asset['created_at'], str) else asset['created_at']
+        
+        asset_responses.append(AssetUploadResponse(
+            id=asset['asset_id'],
+            campaign_id=uuid.UUID(asset['campaign_id']),
+            asset_type=asset['asset_type'],
+            file_name=asset['file_name'],
+            file_path=asset['file_path'],
+            file_size=asset['file_size'],
+            mime_type=asset.get('mime_type'),
+            created_at=created_at
+        ))
     
     return AssetListResponse(
-        assets=[AssetUploadResponse.model_validate(asset) for asset in assets],
-        total=len(assets)
+        assets=asset_responses,
+        total=len(asset_responses)
     )
 
 @router.delete("/{campaign_id}/assets/{asset_id}", response_model=AssetDeleteResponse)
 def delete_campaign_asset(
     campaign_id: uuid.UUID,
     asset_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_user)
 ):
     """
     Delete a campaign asset.
@@ -494,7 +551,6 @@ def delete_campaign_asset(
         campaign_id: UUID of the campaign
         asset_id: UUID of the asset
         current_user: Authenticated user from JWT token
-        db: Database session
         
     Returns:
         Deletion confirmation
@@ -503,16 +559,13 @@ def delete_campaign_asset(
         HTTPException: If campaign or asset not found
         
     Note:
-        For AWS S3: Also delete file from S3 bucket
+        Also deletes file from S3 bucket
     """
-    from models.campaign import CampaignAsset
-    import os
+    import dynamodb_client as dynamodb
+    from utils.aws_s3 import delete_media_from_s3
     
     # Verify campaign exists and user owns it
-    campaign = db.query(Campaign).filter(
-        Campaign.id == campaign_id,
-        Campaign.user_id == current_user.id
-    ).first()
+    campaign = dynamodb.get_campaign(str(campaign_id))
     
     if not campaign:
         raise HTTPException(
@@ -520,29 +573,29 @@ def delete_campaign_asset(
             detail="Campaign not found"
         )
     
-    # Get asset
-    asset = db.query(CampaignAsset).filter(
-        CampaignAsset.id == asset_id,
-        CampaignAsset.campaign_id == campaign_id
-    ).first()
+    if campaign.get('user_id') != current_user['user_id']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this campaign"
+        )
     
-    if not asset:
+    # Get asset
+    asset = dynamodb.get_campaign_asset(str(asset_id))
+    
+    if not asset or asset.get('campaign_id') != str(campaign_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Asset not found"
         )
     
-    # Delete file from local storage
-    # For production: Use delete_from_s3(s3_key)
+    # Delete file from S3
     try:
-        if os.path.exists(asset.file_path):
-            os.remove(asset.file_path)
+        delete_media_from_s3(asset['file_path'])
     except Exception as e:
-        print(f"Error deleting file: {e}")
+        print(f"Error deleting file from S3: {e}")
     
     # Delete database record
-    db.delete(asset)
-    db.commit()
+    dynamodb.delete_campaign_asset(str(asset_id))
     
     return AssetDeleteResponse(
         message="Asset deleted successfully",
@@ -553,8 +606,7 @@ def delete_campaign_asset(
 @router.get("/{campaign_id}/analytics")
 def get_campaign_analytics(
     campaign_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user = Depends(get_current_user)
 ):
     """
     Get analytics for a campaign.
@@ -574,18 +626,14 @@ def get_campaign_analytics(
         HTTPException: If campaign not found or user doesn't own it
         
     Note:
-        - For local development: Returns mock analytics data
-        - For production: Fetches real data from Meta Graph API, YouTube API, etc.
-        - Metrics include: views, likes, comments, shares, engagement_rate
+        - Fetches analytics from DynamoDB (populated by analytics_job.py)
+        - Metrics include: impressions, reach, likes, comments, saves, shares, engagement_rate
     """
-    from models.content import ScheduledPost
     from agents.analytics_agent import AnalyticsAgent
+    import dynamodb_client as dynamodb
     
     # Verify campaign exists and user owns it
-    campaign = db.query(Campaign).filter(
-        Campaign.id == campaign_id,
-        Campaign.user_id == current_user.id
-    ).first()
+    campaign = dynamodb.get_campaign(str(campaign_id))
     
     if not campaign:
         raise HTTPException(
@@ -593,51 +641,16 @@ def get_campaign_analytics(
             detail="Campaign not found"
         )
     
-    # Get all published posts for this campaign
-    # ScheduledPost -> GeneratedContent -> Campaign
-    from models.content import GeneratedContent
-    
-    scheduled_posts = db.query(ScheduledPost).join(
-        GeneratedContent,
-        ScheduledPost.content_id == GeneratedContent.id
-    ).filter(
-        GeneratedContent.campaign_id == campaign_id,
-        ScheduledPost.status == "published"
-    ).all()
-    
-    if not scheduled_posts:
-        # Return empty analytics if no published posts
-        return {
-            "campaign_id": str(campaign_id),
-            "total_posts": 0,
-            "total_views": 0,
-            "total_likes": 0,
-            "total_comments": 0,
-            "total_shares": 0,
-            "total_engagements": 0,
-            "engagement_rate": 0,
-            "average_views_per_post": 0,
-            "post_analytics": [],
-            "fetched_at": datetime.utcnow().isoformat()
-        }
+    if campaign.get('user_id') != current_user['user_id']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this campaign"
+        )
     
     # Initialize Analytics Agent
-    # For production: Pass access token from OAuth
-    # oauth_account = db.query(OAuthAccount).filter(
-    #     OAuthAccount.user_id == current_user.id,
-    #     OAuthAccount.provider == "meta"
-    # ).first()
-    # agent = AnalyticsAgent(access_token=oauth_account.access_token if oauth_account else None)
-    
     agent = AnalyticsAgent()
     
-    # Collect post IDs
-    post_ids = [str(post.id) for post in scheduled_posts]
-    
-    # Fetch campaign analytics
-    analytics = agent.fetch_campaign_analytics(
-        campaign_id=str(campaign_id),
-        post_ids=post_ids
-    )
+    # Fetch campaign analytics from DynamoDB
+    analytics = agent.fetch_campaign_analytics(str(campaign_id))
     
     return analytics

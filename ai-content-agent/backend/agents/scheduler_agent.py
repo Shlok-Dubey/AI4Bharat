@@ -9,11 +9,11 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 import random
 import json
-import os
 
 # Import AWS Bedrock client
 try:
     from utils.bedrock_client import get_bedrock_client
+    from config import settings
     BEDROCK_AVAILABLE = True
 except Exception as e:
     print(f"Bedrock not available for scheduler: {e}")
@@ -73,6 +73,10 @@ class PostSchedulerAgent:
         
         # Maximum posts per day per platform
         self.max_posts_per_day = 3
+        
+        # Cache for historical data (avoid fetching multiple times)
+        self._historical_data_cache = {}
+        self._cache_timestamp = None
     
     def schedule_posts(
         self,
@@ -160,9 +164,19 @@ class PostSchedulerAgent:
         posting_date = start_date + timedelta(days=day_number - 1)
         is_weekend = posting_date.weekday() >= 5
         
-        # Get available peak times for this platform
+        # Get available times - expand to include more options for AI
         day_type = "weekend" if is_weekend else "weekday"
-        available_times = self.peak_times.get(platform, {}).get(day_type, ["12:00"])
+        
+        # Try to get historical best times first
+        historical_data = self._get_historical_performance(platform)
+        
+        if historical_data and historical_data.get('best_times'):
+            # Use historical best times as available options
+            available_times = historical_data['best_times'][:10]  # Top 10 times
+            print(f"📊 Using {len(available_times)} times from historical data")
+        else:
+            # Fall back to predefined peak times
+            available_times = self.peak_times.get(platform, {}).get(day_type, ["12:00"])
         
         # If no times available (e.g., LinkedIn on weekend), use default
         if not available_times:
@@ -333,7 +347,7 @@ Return ONLY the best time in HH:MM format from the available times. No explanati
         
         try:
             response = bedrock_client.invoke_model(
-                modelId=os.getenv('BEDROCK_MODEL_ID', 'anthropic.claude-3-sonnet-20240229-v1:0'),
+                modelId=settings.BEDROCK_MODEL_ID,
                 body=json.dumps(request_body)
             )
             
@@ -355,6 +369,7 @@ Return ONLY the best time in HH:MM format from the available times. No explanati
     def _get_historical_performance(self, platform: str) -> Optional[Dict]:
         """
         Fetch historical performance data from Instagram to inform scheduling decisions.
+        Uses caching to avoid multiple database queries.
         
         Args:
             platform: Social media platform
@@ -365,25 +380,35 @@ Return ONLY the best time in HH:MM format from the available times. No explanati
         if platform.lower() != "instagram":
             return None
         
+        # Check cache (valid for 5 minutes)
+        from datetime import datetime, timedelta
+        if self._cache_timestamp and self._historical_data_cache.get(platform):
+            cache_age = datetime.utcnow() - self._cache_timestamp
+            if cache_age < timedelta(minutes=5):
+                print(f"📊 Using cached historical data")
+                return self._historical_data_cache[platform]
+        
         try:
             # Import analytics agent to fetch historical data
             from agents.analytics_agent import AnalyticsAgent
-            from database_sqlite import get_db
-            from models.content import ScheduledPost, PostAnalytics
-            from sqlalchemy import func
+            import dynamodb_client as db
             
             # Get database session
-            db = next(get_db())
-            
             # Fetch published posts from last 30 days
-            from datetime import datetime, timedelta
             thirty_days_ago = datetime.utcnow() - timedelta(days=30)
             
-            published_posts = db.query(ScheduledPost).filter(
-                ScheduledPost.status == "published",
-                ScheduledPost.published_at >= thirty_days_ago,
-                ScheduledPost.platform_post_id.isnot(None)
-            ).all()
+            # Get all scheduled posts
+            all_posts = db.scheduled_posts_table.scan(
+                FilterExpression='#status = :status AND published_at >= :thirty_days_ago AND platform_post_id <> :null',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'published',
+                    ':thirty_days_ago': thirty_days_ago.isoformat(),
+                    ':null': ''
+                }
+            ).get('Items', [])
+            
+            published_posts = [db.dynamodb_to_python(item) for item in all_posts]
             
             if not published_posts:
                 print("📊 No historical data available - using platform best practices")
@@ -398,21 +423,25 @@ Return ONLY the best time in HH:MM format from the available times. No explanati
             
             for post in published_posts:
                 # Get analytics for this post
-                analytics = db.query(PostAnalytics).filter(
-                    PostAnalytics.post_id == post.id
-                ).first()
+                analytics = db.get_post_analytics(post['post_id'])
                 
                 if analytics:
+                    # Get content to determine type
+                    content = db.get_generated_content(post['content_id'])
+                    if not content:
+                        continue
+                    
                     # Extract hour from published time
-                    hour = post.published_at.hour
+                    published_at = db.deserialize_datetime(post['published_at'])
+                    hour = published_at.hour
                     time_slot = f"{hour:02d}:00"
                     
                     # Calculate engagement score
                     engagement_score = (
-                        analytics.likes * 1.0 +
-                        analytics.comments * 2.0 +
-                        analytics.shares * 3.0
-                    ) / max(analytics.views, 1) * 100
+                        analytics.get('likes', 0) * 1.0 +
+                        analytics.get('comments', 0) * 2.0 +
+                        analytics.get('shares', 0) * 3.0
+                    ) / max(analytics.get('impressions', 1), 1) * 100
                     
                     # Aggregate by time
                     if time_slot not in engagement_by_time:
@@ -420,13 +449,13 @@ Return ONLY the best time in HH:MM format from the available times. No explanati
                     engagement_by_time[time_slot].append(engagement_score)
                     
                     # Aggregate by day of week
-                    day_name = post.published_at.strftime("%A")
+                    day_name = published_at.strftime("%A")
                     if day_name not in engagement_by_day:
                         engagement_by_day[day_name] = []
                     engagement_by_day[day_name].append(engagement_score)
                     
                     # Aggregate by content type
-                    content_type = post.content.content_type
+                    content_type = content.get('content_type', 'post')
                     if content_type not in content_type_performance:
                         content_type_performance[content_type] = []
                     content_type_performance[content_type].append(engagement_score)
@@ -442,13 +471,13 @@ Return ONLY the best time in HH:MM format from the available times. No explanati
                 for day, scores in engagement_by_day.items()
             }
             
-            # Find best performing times (top 5)
+            # Find best performing times (top 10 for more variety)
             sorted_times = sorted(
                 avg_engagement_by_time.items(),
                 key=lambda x: x[1],
                 reverse=True
             )
-            best_times = [time for time, _ in sorted_times[:5]]
+            best_times = [time for time, _ in sorted_times[:10]]
             
             # Find peak days
             sorted_days = sorted(
@@ -464,11 +493,7 @@ Return ONLY the best time in HH:MM format from the available times. No explanati
                 for ctype, scores in content_type_performance.items()
             ])
             
-            print(f"✅ Historical analysis complete:")
-            print(f"   Best times: {', '.join(best_times)}")
-            print(f"   Peak days: {', '.join(peak_days)}")
-            
-            return {
+            result = {
                 "best_times": best_times,
                 "engagement_by_time": avg_engagement_by_time,
                 "peak_days": peak_days,
@@ -476,8 +501,20 @@ Return ONLY the best time in HH:MM format from the available times. No explanati
                 "total_posts_analyzed": len(published_posts)
             }
             
+            # Cache the result
+            self._historical_data_cache[platform] = result
+            self._cache_timestamp = datetime.utcnow()
+            
+            print(f"✅ Historical analysis complete:")
+            print(f"   Best times: {', '.join(best_times[:5])}")
+            print(f"   Peak days: {', '.join(peak_days)}")
+            
+            return result
+            
         except Exception as e:
             print(f"⚠️  Failed to fetch historical data: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def _format_engagement_by_time(self, engagement_by_time: Dict[str, float]) -> str:

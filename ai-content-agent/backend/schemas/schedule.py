@@ -28,6 +28,20 @@ class ScheduleCreateRequest(BaseModel):
             }
         }
 
+class ScheduleUpdateRequest(BaseModel):
+    """Update scheduled post time"""
+    scheduled_for: str = Field(
+        ...,
+        description="New scheduled datetime (YYYY-MM-DD HH:MM:SS)"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "scheduled_for": "2024-01-15 14:30:00"
+            }
+        }
+
 class ScheduledPostResponse(BaseModel):
     """Scheduled post response schema"""
     id: uuid.UUID
@@ -47,6 +61,7 @@ class ScheduledPostResponse(BaseModel):
 
 class SchedulePreviewItem(BaseModel):
     """Individual scheduled post preview"""
+    post_id: Optional[uuid.UUID] = None
     content_id: uuid.UUID
     platform: str
     content_type: str

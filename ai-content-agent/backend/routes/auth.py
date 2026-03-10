@@ -2,10 +2,8 @@
 Authentication routes for user signup and login.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from database_sqlite import get_db
-from models.user import User
+from fastapi import APIRouter, HTTPException, status
+import dynamodb_client as db
 from schemas.auth import (
     UserSignupRequest,
     UserLoginRequest,
@@ -17,13 +15,12 @@ from utils.security import hash_password, verify_password, create_access_token
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/signup", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-def signup(user_data: UserSignupRequest, db: Session = Depends(get_db)):
+def signup(user_data: UserSignupRequest):
     """
     Register a new user account.
     
     Args:
         user_data: User signup information
-        db: Database session
         
     Returns:
         JWT token and user information
@@ -32,7 +29,7 @@ def signup(user_data: UserSignupRequest, db: Session = Depends(get_db)):
         HTTPException: If email already exists
     """
     # Check if user already exists
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    existing_user = db.get_user_by_email(user_data.email)
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -40,7 +37,7 @@ def signup(user_data: UserSignupRequest, db: Session = Depends(get_db)):
         )
     
     # Create new user
-    new_user = User(
+    new_user = db.create_user(
         name=user_data.name,
         email=user_data.email,
         hashed_password=hash_password(user_data.password),
@@ -48,27 +45,34 @@ def signup(user_data: UserSignupRequest, db: Session = Depends(get_db)):
         business_type=user_data.business_type
     )
     
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    
     # Create access token
-    access_token = create_access_token(data={"sub": str(new_user.id)})
+    access_token = create_access_token(data={"sub": new_user['user_id']})
+    
+    # Map DynamoDB fields to UserResponse schema
+    user_response = UserResponse(
+        id=new_user['user_id'],
+        name=new_user['name'],
+        email=new_user['email'],
+        business_name=new_user.get('business_name'),
+        business_type=new_user.get('business_type'),
+        is_active=new_user.get('is_active', True),
+        is_verified=new_user.get('is_verified', False),
+        created_at=new_user['created_at']
+    )
     
     return AuthResponse(
         access_token=access_token,
         token_type="bearer",
-        user=UserResponse.model_validate(new_user)
+        user=user_response
     )
 
 @router.post("/login", response_model=AuthResponse)
-def login(credentials: UserLoginRequest, db: Session = Depends(get_db)):
+def login(credentials: UserLoginRequest):
     """
     Authenticate user and return JWT token.
     
     Args:
         credentials: User login credentials
-        db: Database session
         
     Returns:
         JWT token and user information
@@ -77,7 +81,7 @@ def login(credentials: UserLoginRequest, db: Session = Depends(get_db)):
         HTTPException: If credentials are invalid
     """
     # Find user by email
-    user = db.query(User).filter(User.email == credentials.email).first()
+    user = db.get_user_by_email(credentials.email)
     
     if not user:
         raise HTTPException(
@@ -87,7 +91,7 @@ def login(credentials: UserLoginRequest, db: Session = Depends(get_db)):
         )
     
     # Verify password
-    if not verify_password(credentials.password, user.hashed_password):
+    if not verify_password(credentials.password, user['hashed_password']):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -95,17 +99,30 @@ def login(credentials: UserLoginRequest, db: Session = Depends(get_db)):
         )
     
     # Check if user is active
-    if not user.is_active:
+    if not user.get('is_active', True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"
         )
     
     # Create access token
-    access_token = create_access_token(data={"sub": str(user.id)})
+    access_token = create_access_token(data={"sub": user['user_id']})
+    
+    # Map DynamoDB fields to UserResponse schema
+    user_response = UserResponse(
+        id=user['user_id'],
+        name=user['name'],
+        email=user['email'],
+        business_name=user.get('business_name'),
+        business_type=user.get('business_type'),
+        is_active=user.get('is_active', True),
+        is_verified=user.get('is_verified', False),
+        created_at=user['created_at']
+    )
     
     return AuthResponse(
         access_token=access_token,
         token_type="bearer",
-        user=UserResponse.model_validate(user)
+        user=user_response
     )
+

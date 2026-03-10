@@ -32,33 +32,67 @@ function Analytics() {
             return
         }
 
-        fetchAnalytics(token)
+        // Generate demo analytics data
+        generateDemoAnalytics()
     }, [campaignId, navigate])
 
-    const fetchAnalytics = async (token) => {
-        try {
-            setLoading(true)
-            const response = await axios.get(
-                `/campaigns/${campaignId}/analytics`,
-                {
-                    headers: {
-                        Authorization: `Bearer ${token}`
-                    }
-                }
-            )
-            setAnalytics(response.data)
+    const generateDemoAnalytics = () => {
+        setLoading(true)
+
+        // Simulate API delay
+        setTimeout(() => {
+            // Generate random demo data
+            const demoData = {
+                campaign_id: campaignId,
+                campaign_name: "Demo Campaign",
+                total_posts: 8,
+                total_views: Math.floor(Math.random() * 50000) + 10000,
+                total_likes: Math.floor(Math.random() * 5000) + 1000,
+                total_comments: Math.floor(Math.random() * 500) + 100,
+                total_shares: Math.floor(Math.random() * 300) + 50,
+                engagement_rate: (Math.random() * 5 + 2).toFixed(1), // 2-7%
+                fetched_at: new Date().toISOString(),
+                post_analytics: []
+            }
+
+            // Generate individual post analytics
+            const platforms = ['instagram', 'facebook', 'twitter', 'linkedin']
+            const postTypes = ['image', 'video', 'carousel', 'story']
+
+            for (let i = 0; i < 8; i++) {
+                const views = Math.floor(Math.random() * 8000) + 1000
+                const likes = Math.floor(views * (Math.random() * 0.1 + 0.02)) // 2-12% of views
+                const comments = Math.floor(likes * (Math.random() * 0.15 + 0.05)) // 5-20% of likes
+                const shares = Math.floor(likes * (Math.random() * 0.1 + 0.02)) // 2-12% of likes
+                const engagementRate = (((likes + comments + shares) / views) * 100).toFixed(1)
+
+                demoData.post_analytics.push({
+                    post_id: `demo-post-${i + 1}`,
+                    platform: platforms[Math.floor(Math.random() * platforms.length)],
+                    content_type: postTypes[Math.floor(Math.random() * postTypes.length)],
+                    views: views,
+                    likes: likes,
+                    comments: comments,
+                    shares: shares,
+                    engagement_rate: parseFloat(engagementRate),
+                    published_at: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString(), // Random date in last 7 days
+                    caption: `Demo post ${i + 1} - Sample content for analytics demonstration`
+                })
+            }
+
+            // Calculate totals from individual posts
+            demoData.total_views = demoData.post_analytics.reduce((sum, post) => sum + post.views, 0)
+            demoData.total_likes = demoData.post_analytics.reduce((sum, post) => sum + post.likes, 0)
+            demoData.total_comments = demoData.post_analytics.reduce((sum, post) => sum + post.comments, 0)
+            demoData.total_shares = demoData.post_analytics.reduce((sum, post) => sum + post.shares, 0)
+
+            const totalEngagements = demoData.total_likes + demoData.total_comments + demoData.total_shares
+            demoData.engagement_rate = ((totalEngagements / demoData.total_views) * 100).toFixed(1)
+
+            setAnalytics(demoData)
             setError('')
-        } catch (err) {
-            console.error('Error fetching analytics:', err)
-            const errorMessage = err.response?.data?.detail
-                ? (typeof err.response.data.detail === 'string'
-                    ? err.response.data.detail
-                    : 'Failed to fetch analytics')
-                : 'Failed to fetch analytics'
-            setError(errorMessage)
-        } finally {
             setLoading(false)
-        }
+        }, 1000) // 1 second delay to simulate loading
     }
 
     if (loading) {
@@ -129,12 +163,19 @@ function Analytics() {
 
     return (
         <div className="analytics-container">
+            <div className="demo-banner">
+                <div className="demo-notice">
+                    📊 <strong>Demo Analytics</strong> - This is sample data for demonstration purposes.
+                    Real analytics will be available once Instagram Business Account is properly configured.
+                </div>
+            </div>
+
             <div className="analytics-header">
                 <button onClick={() => navigate('/dashboard')} className="btn-back">
                     ← Back
                 </button>
                 <h1>Campaign Analytics</h1>
-                <p className="campaign-id">Campaign ID: {analytics.campaign_id}</p>
+                <p className="campaign-id">Campaign: {analytics.campaign_name}</p>
             </div>
 
             <div className="stats-overview">
@@ -254,10 +295,10 @@ function Analytics() {
 
             <div className="analytics-footer">
                 <p className="last-updated">
-                    Last updated: {new Date(analytics.fetched_at).toLocaleString()}
+                    Demo data generated: {new Date(analytics.fetched_at).toLocaleString()}
                 </p>
-                <button onClick={() => fetchAnalytics(localStorage.getItem('token'))} className="btn-refresh">
-                    🔄 Refresh Data
+                <button onClick={() => generateDemoAnalytics()} className="btn-refresh">
+                    🎲 Generate New Demo Data
                 </button>
             </div>
         </div>

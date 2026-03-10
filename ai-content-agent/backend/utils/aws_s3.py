@@ -1,288 +1,165 @@
 """
-AWS S3 Integration Module
+AWS S3 Integration Module - Production Ready
 
-This module provides functions for uploading, downloading, and managing files in Amazon S3.
-All code is commented for local development. Uncomment when deploying to AWS.
-
-Prerequisites:
-    - AWS account with S3 access
-    - boto3 library: pip install boto3
-    - AWS credentials configured (IAM role or credentials file)
-    - S3 bucket created
-
-Environment Variables:
-    AWS_REGION: AWS region (e.g., us-east-1)
-    AWS_S3_BUCKET: S3 bucket name
-    AWS_ACCESS_KEY_ID: AWS access key (optional if using IAM role)
-    AWS_SECRET_ACCESS_KEY: AWS secret key (optional if using IAM role)
+This module provides functions for uploading media files to Amazon S3.
+Used for storing campaign assets and media for Instagram posting.
 """
 
-# import boto3
-# from botocore.exceptions import ClientError
-# import os
-# from typing import Optional, BinaryIO
-# from datetime import timedelta
-# import mimetypes
+import boto3
+from botocore.exceptions import ClientError
+from typing import BinaryIO, Optional
+import mimetypes
+import uuid
+import os
+from config import settings
+
+# Initialize S3 client
+def get_s3_client():
+    """Get boto3 S3 client"""
+    return boto3.client(
+        's3',
+        region_name=settings.AWS_REGION,
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+    )
 
 
-# # Initialize S3 client
-# def get_s3_client():
-#     """
-#     Get boto3 S3 client
-    
-#     Returns:
-#         boto3.client: S3 client instance
-#     """
-#     return boto3.client(
-#         's3',
-#         region_name=os.getenv('AWS_REGION', 'us-east-1'),
-#         aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-#         aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
-#     )
-
-
-# def upload_file_to_s3(
-#     file_obj: BinaryIO,
-#     file_name: str,
-#     folder: str = "",
-#     content_type: Optional[str] = None
-# ) -> str:
-#     """
-#     Upload a file to S3
-    
-#     Args:
-#         file_obj: File object to upload
-#         file_name: Name of the file
-#         folder: Optional folder path in S3 bucket
-#         content_type: MIME type of the file
-    
-#     Returns:
-#         str: S3 URL of the uploaded file
-    
-#     Raises:
-#         ClientError: If upload fails
-    
-#     Example:
-#         with open('image.jpg', 'rb') as f:
-#             url = upload_file_to_s3(f, 'image.jpg', 'campaign_assets/123')
-#     """
-#     s3_client = get_s3_client()
-#     bucket_name = os.getenv('AWS_S3_BUCKET')
-    
-#     # Construct S3 key
-#     s3_key = f"{folder}/{file_name}" if folder else file_name
-    
-#     # Guess content type if not provided
-#     if not content_type:
-#         content_type, _ = mimetypes.guess_type(file_name)
-#         if not content_type:
-#             content_type = 'application/octet-stream'
-    
-#     try:
-#         # Upload file
-#         s3_client.upload_fileobj(
-#             file_obj,
-#             bucket_name,
-#             s3_key,
-#             ExtraArgs={
-#                 'ContentType': content_type,
-#                 'ACL': 'private'  # Use 'public-read' for public access
-#             }
-#         )
-        
-#         # Return S3 URL
-#         s3_url = f"https://{bucket_name}.s3.amazonaws.com/{s3_key}"
-#         return s3_url
-        
-#     except ClientError as e:
-#         print(f"Error uploading to S3: {e}")
-#         raise
-
-
-# def download_file_from_s3(s3_key: str, local_path: str) -> bool:
-#     """
-#     Download a file from S3
-    
-#     Args:
-#         s3_key: S3 object key
-#         local_path: Local file path to save
-    
-#     Returns:
-#         bool: True if successful, False otherwise
-    
-#     Example:
-#         success = download_file_from_s3('campaign_assets/123/image.jpg', '/tmp/image.jpg')
-#     """
-#     s3_client = get_s3_client()
-#     bucket_name = os.getenv('AWS_S3_BUCKET')
-    
-#     try:
-#         s3_client.download_file(bucket_name, s3_key, local_path)
-#         return True
-#     except ClientError as e:
-#         print(f"Error downloading from S3: {e}")
-#         return False
-
-
-# def delete_file_from_s3(s3_key: str) -> bool:
-#     """
-#     Delete a file from S3
-    
-#     Args:
-#         s3_key: S3 object key to delete
-    
-#     Returns:
-#         bool: True if successful, False otherwise
-    
-#     Example:
-#         success = delete_file_from_s3('campaign_assets/123/image.jpg')
-#     """
-#     s3_client = get_s3_client()
-#     bucket_name = os.getenv('AWS_S3_BUCKET')
-    
-#     try:
-#         s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
-#         return True
-#     except ClientError as e:
-#         print(f"Error deleting from S3: {e}")
-#         return False
-
-
-# def generate_presigned_url(s3_key: str, expiration: int = 3600) -> Optional[str]:
-#     """
-#     Generate a presigned URL for temporary access to a private S3 object
-    
-#     Args:
-#         s3_key: S3 object key
-#         expiration: URL expiration time in seconds (default: 1 hour)
-    
-#     Returns:
-#         str: Presigned URL or None if failed
-    
-#     Example:
-#         url = generate_presigned_url('campaign_assets/123/image.jpg', expiration=7200)
-#         # URL valid for 2 hours
-#     """
-#     s3_client = get_s3_client()
-#     bucket_name = os.getenv('AWS_S3_BUCKET')
-    
-#     try:
-#         url = s3_client.generate_presigned_url(
-#             'get_object',
-#             Params={'Bucket': bucket_name, 'Key': s3_key},
-#             ExpiresIn=expiration
-#         )
-#         return url
-#     except ClientError as e:
-#         print(f"Error generating presigned URL: {e}")
-#         return None
-
-
-# def list_files_in_folder(folder: str, max_keys: int = 1000) -> list:
-#     """
-#     List all files in an S3 folder
-    
-#     Args:
-#         folder: Folder path in S3 bucket
-#         max_keys: Maximum number of keys to return
-    
-#     Returns:
-#         list: List of S3 object keys
-    
-#     Example:
-#         files = list_files_in_folder('campaign_assets/123')
-#     """
-#     s3_client = get_s3_client()
-#     bucket_name = os.getenv('AWS_S3_BUCKET')
-    
-#     try:
-#         response = s3_client.list_objects_v2(
-#             Bucket=bucket_name,
-#             Prefix=folder,
-#             MaxKeys=max_keys
-#         )
-        
-#         if 'Contents' in response:
-#             return [obj['Key'] for obj in response['Contents']]
-#         return []
-        
-#     except ClientError as e:
-#         print(f"Error listing S3 objects: {e}")
-#         return []
-
-
-# def get_file_metadata(s3_key: str) -> Optional[dict]:
-#     """
-#     Get metadata for an S3 object
-    
-#     Args:
-#         s3_key: S3 object key
-    
-#     Returns:
-#         dict: Object metadata or None if failed
-    
-#     Example:
-#         metadata = get_file_metadata('campaign_assets/123/image.jpg')
-#         print(f"Size: {metadata['ContentLength']} bytes")
-#     """
-#     s3_client = get_s3_client()
-#     bucket_name = os.getenv('AWS_S3_BUCKET')
-    
-#     try:
-#         response = s3_client.head_object(Bucket=bucket_name, Key=s3_key)
-#         return {
-#             'ContentLength': response['ContentLength'],
-#             'ContentType': response['ContentType'],
-#             'LastModified': response['LastModified'],
-#             'ETag': response['ETag']
-#         }
-#     except ClientError as e:
-#         print(f"Error getting S3 metadata: {e}")
-#         return None
-
-
-# def copy_file_in_s3(source_key: str, dest_key: str) -> bool:
-#     """
-#     Copy a file within S3
-    
-#     Args:
-#         source_key: Source S3 object key
-#         dest_key: Destination S3 object key
-    
-#     Returns:
-#         bool: True if successful, False otherwise
-    
-#     Example:
-#         success = copy_file_in_s3('temp/image.jpg', 'campaign_assets/123/image.jpg')
-#     """
-#     s3_client = get_s3_client()
-#     bucket_name = os.getenv('AWS_S3_BUCKET')
-    
-#     try:
-#         copy_source = {'Bucket': bucket_name, 'Key': source_key}
-#         s3_client.copy_object(
-#             CopySource=copy_source,
-#             Bucket=bucket_name,
-#             Key=dest_key
-#         )
-#         return True
-#     except ClientError as e:
-#         print(f"Error copying in S3: {e}")
-#         return False
-
-
-# Example usage for local development
-def upload_file_to_s3_placeholder(file_obj, file_name: str, folder: str = "") -> str:
+def upload_media_to_s3(file_obj: BinaryIO, file_name: str, campaign_id: str = None) -> str:
     """
-    Placeholder function for local development
-    Returns a mock S3 URL
+    Upload media file to S3 and return public URL.
+    
+    This function uploads image or video files to S3 with public-read ACL,
+    making them accessible for Instagram Graph API.
+    
+    Args:
+        file_obj: File object to upload (from FastAPI UploadFile)
+        file_name: Original filename
+        campaign_id: Optional campaign ID for organizing files
+    
+    Returns:
+        str: Public S3 URL of the uploaded file
+    
+    Raises:
+        ClientError: If upload fails
+    
+    Example:
+        url = upload_media_to_s3(file.file, file.filename, campaign_id)
     """
-    return f"s3://mock-bucket/{folder}/{file_name}" if folder else f"s3://mock-bucket/{file_name}"
+    s3_client = get_s3_client()
+    bucket_name = settings.S3_BUCKET_NAME
+    
+    if not bucket_name:
+        raise ValueError("AWS_S3_BUCKET environment variable not set")
+    
+    # Generate unique filename to avoid collisions
+    file_extension = os.path.splitext(file_name)[1]
+    unique_filename = f"{uuid.uuid4()}{file_extension}"
+    
+    # Construct S3 key with campaign organization
+    if campaign_id:
+        s3_key = f"campaign_assets/{campaign_id}/{unique_filename}"
+    else:
+        s3_key = f"media/{unique_filename}"
+    
+    # Determine content type
+    content_type, _ = mimetypes.guess_type(file_name)
+    if not content_type:
+        # Default content types for common media
+        if file_extension.lower() in ['.jpg', '.jpeg']:
+            content_type = 'image/jpeg'
+        elif file_extension.lower() == '.png':
+            content_type = 'image/png'
+        elif file_extension.lower() == '.mp4':
+            content_type = 'video/mp4'
+        else:
+            content_type = 'application/octet-stream'
+    
+    try:
+        # Upload file (bucket policy provides public read access)
+        s3_client.upload_fileobj(
+            file_obj,
+            bucket_name,
+            s3_key,
+            ExtraArgs={
+                'ContentType': content_type,
+                'CacheControl': 'max-age=31536000'  # Cache for 1 year
+            }
+        )
+        
+        # Return public S3 URL
+        region = settings.AWS_REGION
+        s3_url = f"https://{bucket_name}.s3.{region}.amazonaws.com/{s3_key}"
+        
+        print(f"✅ Uploaded to S3: {s3_url}")
+        return s3_url
+        
+    except ClientError as e:
+        print(f"❌ Error uploading to S3: {e}")
+        raise
 
 
-def generate_presigned_url_placeholder(s3_key: str, expiration: int = 3600) -> str:
+def delete_media_from_s3(s3_url: str) -> bool:
     """
-    Placeholder function for local development
-    Returns a mock presigned URL
+    Delete a media file from S3 using its URL.
+    
+    Args:
+        s3_url: Full S3 URL of the file
+    
+    Returns:
+        bool: True if successful, False otherwise
     """
-    return f"https://mock-bucket.s3.amazonaws.com/{s3_key}?expires={expiration}"
+    s3_client = get_s3_client()
+    bucket_name = settings.S3_BUCKET_NAME
+    
+    try:
+        # Extract S3 key from URL
+        # Format: https://bucket.s3.region.amazonaws.com/key
+        s3_key = s3_url.split('.amazonaws.com/')[-1]
+        
+        s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
+        print(f"✅ Deleted from S3: {s3_key}")
+        return True
+        
+    except ClientError as e:
+        print(f"❌ Error deleting from S3: {e}")
+        return False
+
+
+def validate_media_file(file_name: str, file_size: int) -> tuple[bool, str]:
+    """
+    Validate media file for Instagram requirements.
+    
+    Instagram requirements:
+    - Images: JPG, PNG (max 8MB)
+    - Videos: MP4 (max 100MB, 3-60 seconds)
+    
+    Args:
+        file_name: Name of the file
+        file_size: Size in bytes
+    
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    file_extension = os.path.splitext(file_name)[1].lower()
+    
+    # Check file type
+    allowed_image_types = ['.jpg', '.jpeg', '.png']
+    allowed_video_types = ['.mp4']
+    
+    if file_extension in allowed_image_types:
+        # Image validation
+        max_size = 8 * 1024 * 1024  # 8MB
+        if file_size > max_size:
+            return False, f"Image file too large. Max size: 8MB, got: {file_size / 1024 / 1024:.2f}MB"
+        return True, ""
+        
+    elif file_extension in allowed_video_types:
+        # Video validation
+        max_size = 100 * 1024 * 1024  # 100MB
+        if file_size > max_size:
+            return False, f"Video file too large. Max size: 100MB, got: {file_size / 1024 / 1024:.2f}MB"
+        return True, ""
+        
+    else:
+        return False, f"Unsupported file type: {file_extension}. Allowed: JPG, PNG, MP4"
+
